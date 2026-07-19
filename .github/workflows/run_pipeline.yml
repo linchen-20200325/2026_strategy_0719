@@ -7,14 +7,14 @@
 #   或 DB 放在 runner 拿得到的物件儲存）。
 #
 # 時區:cron 一律 UTC。台灣 = UTC+8。
-#   早上 08:30 TW = 00:30 UTC；下午 14:30 TW = 06:30 UTC。週一至週五。
+#   早上 07:30 TW = 前一日 23:30 UTC（故週日~四 0-4）；下午 16:30 TW = 當日 08:30 UTC（週一~五）。
 
 name: multi-agent-pipeline
 
 on:
   schedule:
-    - cron: "30 0 * * 1-5"   # 08:30 TW（盤前）
-    - cron: "30 6 * * 1-5"   # 14:30 TW（收盤後）
+    - cron: "30 23 * * 0-4"  # 07:30 TW（盤前）= 前一日 23:30 UTC，週日~四
+    - cron: "30 8 * * 1-5"   # 16:30 TW（收盤後）= 當日 08:30 UTC
   workflow_dispatch:          # 也可手動觸發
     inputs:
       session:
