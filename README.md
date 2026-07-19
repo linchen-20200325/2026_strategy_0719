@@ -132,10 +132,42 @@ print(result.decision.summary())
 * **定時觸發**：`orch.run_scheduled(reqs, interval_sec=..., max_iterations=...)`；
   生產環境建議改用 cron / APScheduler。
 
+## 視覺化 / 通知元件（Streamlit）
+
+決策結果可用 **視覺化圖表 + 通知小元件** 無縫嵌入既有 Streamlit dashboard。
+配色鏡像既有 dashboard 的 traffic-light 主題（`shared/colors.py`），並支援明暗主題。
+
+**一鍵嵌入**（把這一行放進你 dashboard 的任一 tab 即可）：
+
+```python
+from multi_agent_system.ui import render_cycle_result
+render_cycle_result(orchestrator.run_once(request))   # 徽章 + 得分圖 + 血緣 + Mock 下單
+```
+
+**通知中心小元件**（多標的訊號摘要，適合放 sidebar / 頂端）：
+
+```python
+from multi_agent_system.ui import render_notification_center
+render_notification_center(results, only_actionable=True)   # 只顯示買賣訊號，略過 Hold/abstain
+```
+
+**獨立展示頁**：
+
+```bash
+streamlit run dashboard.py
+```
+
+元件清單（`multi_agent_system/ui/`）：`render_signal_badge` / `render_score_breakdown` /
+`render_provenance` / `render_mock_order` / `render_decision_panel` / `render_cycle_result` /
+`render_notification_center`。核心 agents **不** import streamlit（分層隔離，cron/測試可獨立跑）。
+
+**通知管道**：`Notifier` 介面現有 `ConsoleNotifier` / `StreamlitToastNotifier`；
+**LINE 推播**（`LineNotifier`）為預留骨架，接線後即插即用（規劃於視覺化之後）。
+
 ## 測試
 
 ```bash
-pytest          # 59 個測試：單元 + 邊界 + 端到端
+pytest          # 69 個測試：單元 + 邊界 + 端到端 + Streamlit AppTest
 ruff check .    # lint
 ```
 
@@ -155,7 +187,8 @@ ruff check .    # lint
 ```
 2026_strategy_0719/
 ├── config.py                     # SSOT：權重 / 門檻 / 參數
-├── main.py                       # Demo 入口
+├── main.py                       # CLI Demo 入口
+├── dashboard.py                  # Streamlit 展示頁（streamlit run dashboard.py）
 ├── multi_agent_system/
 │   ├── contracts.py              # dataclasses + Action enum
 │   ├── numerics.py               # clamp / linear_map / Sharpe
@@ -165,7 +198,12 @@ ruff check .    # lint
 │   ├── technical_agent.py        # ③ 技術專家
 │   ├── allocation_agent.py       # ④ 配置專家
 │   ├── strategy_agent.py         # ⑤ 策略融合
-│   └── integration_agent.py      # ⑥ 編排 + Mock 券商
+│   ├── integration_agent.py      # ⑥ 編排 + Mock 券商
+│   └── ui/                       # 視覺化 / 通知層（streamlit，可選）
+│       ├── theme.py              #    配色（鏡像 dashboard traffic-light）
+│       ├── view_model.py         #    純轉換層（無 streamlit，可測）
+│       ├── components.py         #    render 元件（徽章 / 圖表 / 通知中心）
+│       └── notify.py             #    Notifier 介面 + LINE 骨架（之後接）
 ├── scripts/seed_demo_dbs.py      # 產生示範資料庫
-└── tests/                        # pytest 測試
+└── tests/                        # pytest（69 個：含 Streamlit AppTest）
 ```
