@@ -54,6 +54,7 @@ class SubscriberStore(Protocol):
     def get(self, user_id: str) -> list[WatchItem]: ...
     def set(self, user_id: str, items: list[WatchItem]) -> None: ...
     def add_item(self, user_id: str, item: WatchItem) -> None: ...
+    def remove_item(self, user_id: str, tw_stock_id: str) -> bool: ...
     def remove_user(self, user_id: str) -> None: ...
 
 
@@ -108,6 +109,15 @@ class JsonSubscriberStore:
         items = [it for it in items if it.tw_stock_id != item.tw_stock_id]
         items.append(item)
         self.set(user_id, items)
+
+    def remove_item(self, user_id: str, tw_stock_id: str) -> bool:
+        """移除某 user 的一檔;回傳是否有移除。清單清空仍保留該 user（可再加）。"""
+        items = self.get(user_id)
+        kept = [it for it in items if it.tw_stock_id != tw_stock_id]
+        if len(kept) == len(items):
+            return False
+        self.set(user_id, kept)
+        return True
 
     def remove_user(self, user_id: str) -> None:
         data = self._load()
