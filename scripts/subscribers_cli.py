@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from config import DEFAULT_WEIGHT_RATIO
 from multi_agent_system.pipeline import WatchItem
 from multi_agent_system.subscribers import JsonSubscriberStore
 
@@ -31,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--us", default="", help="連動美股 / 基金代號")
     a.add_argument("--keywords", default="", help="新聞關鍵字（逗號分隔）")
     a.add_argument("--category", default="台股", choices=["台股", "ETF", "基金"])
-    a.add_argument("--weight", type=float, default=0.10)
+    a.add_argument("--weight", type=float, default=DEFAULT_WEIGHT_RATIO)
     a.add_argument("--sharpe", type=float, default=None)
 
     sub.add_parser("list", help="列出所有訂閱者與其清單")

@@ -16,6 +16,8 @@ import os
 import tempfile
 from typing import Protocol
 
+from config import DEFAULT_MAX_WEIGHT_RATIO, DEFAULT_WEIGHT_RATIO
+
 from .pipeline.watchlist import WatchItem
 
 
@@ -42,8 +44,8 @@ def item_from_dict(d: dict) -> WatchItem:
         tw_stock_id=str(d["tw_stock_id"]),
         us_stock_id=str(d.get("us_stock_id", "") or ""),
         keywords=tuple(d.get("keywords", []) or ()),
-        current_weight_ratio=float(d.get("current_weight_ratio", 0.10)),
-        max_weight_ratio=float(d.get("max_weight_ratio", 0.20)),
+        current_weight_ratio=float(d.get("current_weight_ratio", DEFAULT_WEIGHT_RATIO)),
+        max_weight_ratio=float(d.get("max_weight_ratio", DEFAULT_MAX_WEIGHT_RATIO)),
         sharpe=None if d.get("sharpe") is None else float(d["sharpe"]),
         category=str(d.get("category", "台股") or "台股"),
     )

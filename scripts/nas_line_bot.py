@@ -71,6 +71,7 @@ from pathlib import Path
 # 入口腳本：讓 `python scripts/nas_line_bot.py` 從 repo 根找得到 multi_agent_system。
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from config import DEFAULT_WEIGHT_RATIO  # noqa: E402
 from multi_agent_system.pipeline import WatchItem  # noqa: E402
 from multi_agent_system.subscribers import (  # noqa: E402
     JsonSubscriberStore,
@@ -320,9 +321,10 @@ def handle_text(
             return f"看不懂代號「{arg}」。台股/ETF 給 4~6 位數字（例：加 2330 台積電）。"
         keywords = (name,) if name else ()
         try:
+            # 權重預設走 config SSOT；max_weight_ratio 用 WatchItem 的 config-backed 預設。
             store.add_item(user_id, WatchItem(
                 tw_stock_id=code, us_stock_id="", keywords=keywords,
-                current_weight_ratio=0.10, max_weight_ratio=0.20,
+                current_weight_ratio=DEFAULT_WEIGHT_RATIO,
                 sharpe=None, category=category,
             ))
         except (SubscriberStoreError, OSError) as exc:

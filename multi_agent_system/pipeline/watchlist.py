@@ -14,6 +14,8 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from config import DEFAULT_MAX_WEIGHT_RATIO, DEFAULT_WEIGHT_RATIO
+
 from ..contracts import PortfolioState
 
 # UI 編輯表欄位（st.data_editor 用;為顯示標籤,轉換邏輯集中在本檔）
@@ -26,7 +28,7 @@ class WatchItem:
     us_stock_id: str
     keywords: tuple[str, ...]
     current_weight_ratio: float
-    max_weight_ratio: float = 0.20
+    max_weight_ratio: float = DEFAULT_MAX_WEIGHT_RATIO
     sharpe: float | None = None
     category: str = "台股"        # 台股 / ETF / 基金（供 UI 分組;不影響 pipeline 計算）
 
@@ -84,7 +86,11 @@ def watchlist_from_df(df: pd.DataFrame) -> list[WatchItem]:
         keywords = tuple(k.strip() for k in kw_raw.split(",") if k.strip())
 
         weight_raw = row.get("權重")
-        weight = 0.10 if weight_raw is None or pd.isna(weight_raw) else float(weight_raw)
+        weight = (
+            DEFAULT_WEIGHT_RATIO
+            if weight_raw is None or pd.isna(weight_raw)
+            else float(weight_raw)
+        )
 
         sharpe_raw = row.get("Sharpe")
         sharpe = None if sharpe_raw is None or pd.isna(sharpe_raw) else float(sharpe_raw)
