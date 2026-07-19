@@ -9,6 +9,7 @@ from .freshness import DbFreshness, FreshnessReport, check_freshness
 from .runner import (
     PipelineRunner,
     RunReport,
+    build_request,
     bullish_ranked,
     format_bullish_digest,
     format_run_digest,
@@ -37,4 +38,5 @@ __all__ = [
     "format_run_digest",
     "bullish_ranked",
     "format_bullish_digest",
+    "build_request",
 ]

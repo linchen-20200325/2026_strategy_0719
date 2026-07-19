@@ -75,6 +75,34 @@ def _resolve_db_paths(use_demo: bool) -> dict[str, str]:
     return load_db_paths(allow_demo=True)
 
 
+def _run_per_user(orchestrator: WorkflowOrchestrator, args) -> int:
+    """個人化推播：每位訂閱者各自清單 → LINE push 逐人。"""
+    from multi_agent_system.multiuser import run_per_user_push
+    from multi_agent_system.subscribers import JsonSubscriberStore
+
+    token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+    if not args.dry_run and not token:
+        logger.error("個人化推播需 LINE_CHANNEL_ACCESS_TOKEN（或加 --dry-run 只預覽）")
+        return 4
+
+    results = run_per_user_push(
+        JsonSubscriberStore(args.subscribers),
+        orchestrator,
+        _build_macro_provider(),
+        channel_access_token=token,
+        dry_run=args.dry_run,
+    )
+    pushed = sum(1 for r in results if r.pushed)
+    logger.info("個人化推播：%d 訂閱者,%d 已推", len(results), pushed)
+    for r in results:
+        state = "✅ 推出" if r.pushed else ("dry-run" if args.dry_run else "略過")
+        line = f"  {r.user_id}：追蹤 {r.n_tracked} / 利多 {r.n_bullish} → {state}"
+        if r.error:
+            line += f"（錯誤：{r.error}）"
+        print(line)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="多智能體投研排程執行")
     parser.add_argument("--session", required=True, choices=["morning", "afternoon"])
@@ -89,6 +117,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--output", help="把 JSON 報告寫到此檔")
     parser.add_argument("--max-age-days", type=int, default=4)
+    parser.add_argument(
+        "--per-user", action="store_true",
+        help="改跑個人化推播：每位訂閱者各自清單 → LINE push 逐人",
+    )
+    parser.add_argument("--subscribers", default="subscribers.json", help="訂閱者 JSON 檔（--per-user 用）")
+    parser.add_argument("--dry-run", action="store_true", help="--per-user 時只算不推")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -103,6 +137,10 @@ def main(argv: list[str] | None = None) -> int:
         DataAggregationAgent(db_paths["stock_db"], db_paths["fund_db"], db_paths["news_db"]),
         broker=MockBrokerAPI(),
     )
+
+    if args.per_user:
+        return _run_per_user(orchestrator, args)
+
     runner = PipelineRunner(
         orchestrator,
         DEMO_WATCHLIST,
