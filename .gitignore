@@ -16,6 +16,11 @@ htmlcov/
 # 產生的 DEMO 資料庫（由 scripts/seed_demo_dbs.py 產生，不入庫）
 demo_data/
 
+# LINE 盯盤執行期狀態（含真實 userId，禁止入庫）
+subscribers.json
+bot_allow.json
+*.tmp
+
 # 虛擬環境
 .venv/
 venv/

@@ -80,6 +80,10 @@ SHARPE_CAP: float = 2.0
 # 單一持股權重上限（比例，非百分數）。超過即觸發強制風控減碼。
 DEFAULT_MAX_WEIGHT_RATIO: float = 0.20
 
+# 追蹤標的「目前權重」的預設值（比例，非百分數）：呼叫端/使用者未指定時套用。
+# SSOT：watchlist / subscribers / CLI / webhook bot 一律引用此常數，勿再散落字面值。
+DEFAULT_WEIGHT_RATIO: float = 0.10
+
 # 觸發集中度風控時，配置得分被強制壓在此上限以下（拖低 Final Score → 減碼/賣出）。
 RISK_CONTROL_SCORE_CAP: float = 0.25
 

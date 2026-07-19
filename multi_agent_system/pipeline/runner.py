@@ -28,6 +28,25 @@ logger = logging.getLogger("multi_agent_system.pipeline")
 VALID_SESSIONS = ("morning", "afternoon")
 
 
+def build_request(
+    item: WatchItem,
+    macro_provider: MacroDataProvider,
+    *,
+    as_of: date | None = None,
+    auto_trade: bool = False,
+) -> ResearchRequest:
+    """WatchItem + 總經 provider → ResearchRequest（SSOT，供批次 / 個人化推播共用）。"""
+    return ResearchRequest(
+        tw_stock_id=item.tw_stock_id,
+        us_stock_id=item.us_stock_id,
+        news_keywords=list(item.keywords),
+        portfolio_state=item.portfolio_state(),
+        macro_provider=macro_provider,
+        as_of_date=as_of,
+        auto_trade=auto_trade,
+    )
+
+
 @dataclass
 class RunReport:
     session: str
@@ -99,15 +118,7 @@ class PipelineRunner:
 
         # 2) 批次投研
         requests = [
-            ResearchRequest(
-                tw_stock_id=it.tw_stock_id,
-                us_stock_id=it.us_stock_id,
-                news_keywords=list(it.keywords),
-                portfolio_state=it.portfolio_state(),
-                macro_provider=self.macro_provider,
-                as_of_date=as_of,
-                auto_trade=auto_trade,
-            )
+            build_request(it, self.macro_provider, as_of=as_of, auto_trade=auto_trade)
             for it in self.watchlist
         ]
         results = self.orchestrator.run_batch(requests)
