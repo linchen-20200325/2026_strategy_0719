@@ -57,6 +57,8 @@ WorkingDirectory=/path/to/2026_strategy_0719
 Environment=LINE_CHANNEL_ACCESS_TOKEN=xxx
 Environment=LINE_CHANNEL_SECRET=yyy
 Environment=STRATEGY_ADMIN_USER=U你的userId
+# 與 deploy/crontab.example 的 --subscribers 路徑保持一致（同一份清單:webhook 寫、cron 讀）
+Environment=SUBSCRIBERS_FILE=/volume1/data/subscribers.json
 ExecStart=/usr/bin/python3 scripts/nas_line_bot.py
 Restart=always
 
