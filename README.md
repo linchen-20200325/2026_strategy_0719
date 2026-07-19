@@ -164,10 +164,40 @@ streamlit run dashboard.py
 **通知管道**：`Notifier` 介面現有 `ConsoleNotifier` / `StreamlitToastNotifier`；
 **LINE 推播**（`LineNotifier`）為預留骨架，接線後即插即用（規劃於視覺化之後）。
 
+## 排程執行（早上 / 下午）
+
+`run_pipeline.py` 讀三庫 → 跑 agents → 通知 → 產出 JSON 報告，設計給 cron / GitHub Actions 定時呼叫。
+執行前先跑 **新鮮度守門**（Fail-Loud）：三庫最新資料距今 > `max_age_days`（預設 4，涵蓋週末）即告警；
+加 `--strict` 則直接中止，避免 AI 跑在舊資料上。
+
+```bash
+export STOCK_DB=/path/stock.db FUND_DB=/path/fund.db NEWS_DB=/path/news.db
+python run_pipeline.py --session morning                                   # 盤前場
+python run_pipeline.py --session afternoon --strict --output signals.json  # 收盤後場
+python run_pipeline.py --session morning --demo                            # 示範（自動 seed）
+```
+
+**建議時點（台灣時間，週一至週五）**：
+
+| 場次 | TW | UTC | 用途 |
+|---|---|---|---|
+| 早上 | 08:30 | 00:30 | 盤前：前一日收盤 + 隔夜美股(fund.db) + 隔夜新聞 → 當日計畫 |
+| 下午 | 14:30 | 06:30 | 收盤後：當日已結算收盤 → 收盤後調整 |
+
+> ⚠️ 下午場需在 `stock.db` 已更新「當日收盤」之後才跑；若你的 stock.db 較晚更新（如 17:00），
+> 把下午場往後移。新鮮度守門會在資料過舊時告警。
+
+**兩種排程方式**：
+- **NAS / server crontab**（首選，DB 通常在本機）：見 `deploy/crontab.example`
+- **GitHub Actions cron**（替代，需 runner 讀得到三個 DB）：見 `.github/workflows/run_pipeline.yml`
+
+**總經數據**：設 `MACRO_SPREAD_PCT` + `MACRO_CPI_YOY_PCT` → 真實注入值；否則用模擬中性情境並印警語
+（`is_simulated=True`，接 FRED 後改真實值）。
+
 ## 測試
 
 ```bash
-pytest          # 69 個測試：單元 + 邊界 + 端到端 + Streamlit AppTest
+pytest          # 81 個測試：單元 + 邊界 + 端到端 + Streamlit AppTest + 排程/新鮮度
 ruff check .    # lint
 ```
 
@@ -189,9 +219,11 @@ ruff check .    # lint
 ├── config.py                     # SSOT：權重 / 門檻 / 參數
 ├── main.py                       # CLI Demo 入口
 ├── dashboard.py                  # Streamlit 展示頁（streamlit run dashboard.py）
+├── run_pipeline.py               # 排程 CLI（cron / Actions 呼叫）
 ├── multi_agent_system/
 │   ├── contracts.py              # dataclasses + Action enum
 │   ├── numerics.py               # clamp / linear_map / Sharpe
+│   ├── notifications.py          # Notifier / Console / LINE 骨架（無 streamlit）
 │   ├── data_agent.py             # ① 資料代理人
 │   ├── macro_agent.py            # ② 總經專家
 │   ├── macro_providers.py        #    總經來源介面 + 模擬/注入
@@ -199,11 +231,17 @@ ruff check .    # lint
 │   ├── allocation_agent.py       # ④ 配置專家
 │   ├── strategy_agent.py         # ⑤ 策略融合
 │   ├── integration_agent.py      # ⑥ 編排 + Mock 券商
+│   ├── pipeline/                 # 排程層（無 streamlit）
+│   │   ├── watchlist.py          #    觀察清單 + DB 路徑（env）
+│   │   ├── freshness.py          #    新鮮度守門（Fail-Loud）
+│   │   └── runner.py             #    批次執行 + 通知 + 報告
 │   └── ui/                       # 視覺化 / 通知層（streamlit，可選）
 │       ├── theme.py              #    配色（鏡像 dashboard traffic-light）
 │       ├── view_model.py         #    純轉換層（無 streamlit，可測）
 │       ├── components.py         #    render 元件（徽章 / 圖表 / 通知中心）
-│       └── notify.py             #    Notifier 介面 + LINE 骨架（之後接）
+│       └── notify.py             #    toast + re-export 核心 notifier
+├── deploy/crontab.example        # NAS/server 排程範例
+├── .github/workflows/run_pipeline.yml   # GitHub Actions 排程（替代）
 ├── scripts/seed_demo_dbs.py      # 產生示範資料庫
-└── tests/                        # pytest（69 個：含 Streamlit AppTest）
+└── tests/                        # pytest（81 個：含 AppTest + 排程/新鮮度）
 ```

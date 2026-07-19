@@ -13,16 +13,10 @@ import pandas as pd
 from config import FUSION_WEIGHTS
 
 from ..contracts import Action, FinalDecision
+from ..notifications import ACTION_EMOJI as _ACTION_EMOJI
 from .theme import DEFAULT_PALETTE, Palette
 
-# 交通號誌 emoji（綠=買 / 黃=中性 / 橘紅=賣），與中文標籤並用,不靠顏色單獨表意。
-_ACTION_EMOJI: dict[Action, str] = {
-    Action.STRONG_BUY: "🟢",
-    Action.ADD: "🟢",
-    Action.HOLD: "🟡",
-    Action.REDUCE: "🟠",
-    Action.STRONG_SELL: "🔴",
-}
+# 交通號誌 emoji 由核心 notifications 提供(SSOT,避免重複)。
 _ACTION_TONE: dict[Action, str] = {
     Action.STRONG_BUY: "bullish",
     Action.ADD: "bullish",

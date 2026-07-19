@@ -37,6 +37,13 @@ from .macro_providers import (
     SimulatedMacroProvider,
     StaticMacroProvider,
 )
+from .notifications import (
+    ConsoleNotifier,
+    LineNotifier,
+    Notifier,
+    format_notification,
+    should_notify,
+)
 from .numerics import annualized_sharpe, clamp, linear_map
 from .strategy_agent import StrategyAgent
 from .technical_agent import TechnicalAnalysisAgent
@@ -71,6 +78,12 @@ __all__ = [
     "OrderReceipt",
     "ResearchRequest",
     "CycleResult",
+    # notifications (streamlit-free core)
+    "Notifier",
+    "ConsoleNotifier",
+    "LineNotifier",
+    "should_notify",
+    "format_notification",
     # helpers
     "DataSourceError",
     "default_portfolio_state",
