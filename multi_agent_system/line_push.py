@@ -5,24 +5,34 @@
 
 設定（環境變數,或建構子傳入）:
     LINE_CHANNEL_ACCESS_TOKEN   — Messaging API channel 的長期 access token
-    LINE_TO                     — 推播對象 userId / groupId（push 需指定對象）
+    LINE_TO                     — 推播對象,依值自動選端點（參考 mynews/line_notify.py 慣例）:
+        · "broadcast"                → /broadcast,發給所有加好友的人（免收集 ID）
+        · 多個 ID（逗號/空白分隔）    → /multicast,發給名單（最多 500 人）
+        · 單一 ID（user/group/room） → /push
 
 Fail-Loud:缺 token/對象 → raise;HTTP 非 2xx / 連線失敗 → raise（不靜默吞）。
 
-註:LINE Notify 已於 2025 停用,本檔用的是 Messaging API 的 push endpoint。
+註:LINE Notify 已於 2025 停用,本檔用的是 Messaging API。
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 import urllib.error
 import urllib.request
 
 from .contracts import FinalDecision
 from .notifications import format_notification, should_notify
 
+logger = logging.getLogger("multi_agent_system.line")
+
+# 三端點 + LINE_TO 自動路由（參考 mynews/line_notify.py 的推播慣例）
 LINE_PUSH_ENDPOINT = "https://api.line.me/v2/bot/message/push"
+LINE_MULTICAST_ENDPOINT = "https://api.line.me/v2/bot/message/multicast"
+LINE_BROADCAST_ENDPOINT = "https://api.line.me/v2/bot/message/broadcast"
 _MAX_TEXT_LEN = 4900   # LINE 單則 text 上限 5000,留餘裕
 
 
@@ -57,18 +67,33 @@ class LinePusher:
         if missing:
             raise LinePushError(f"LINE 推播缺少設定：{missing}")
 
+    def _resolve_target(self, messages: list[dict]) -> tuple[str, dict, str]:
+        """依 self.to 決定端點與 body（broadcast / multicast / push,參考 mynews 慣例）。"""
+        to_raw = str(self.to).strip()
+        if to_raw.lower() == "broadcast":
+            return LINE_BROADCAST_ENDPOINT, {"messages": messages}, "broadcast(全體好友)"
+        ids = [t for t in re.split(r"[,\s]+", to_raw) if t]
+        if not ids:
+            raise LinePushError("LINE_TO 無有效推播對象")
+        if len(ids) > 1:
+            return (
+                LINE_MULTICAST_ENDPOINT,
+                {"to": ids, "messages": messages},
+                f"multicast({len(ids)} 人名單)",
+            )
+        return LINE_PUSH_ENDPOINT, {"to": ids[0], "messages": messages}, "push(單一對象)"
+
     def push_text(self, text: str) -> None:
-        """推一則純文字訊息。失敗一律 raise LinePushError。"""
+        """推一則純文字訊息;依 LINE_TO 自動 broadcast/multicast/push。失敗一律 raise。"""
         self._require_config()
         if not text.strip():
             raise LinePushError("推播內容為空")
-        payload = {
-            "to": self.to,
-            "messages": [{"type": "text", "text": text[:_MAX_TEXT_LEN]}],
-        }
-        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        messages = [{"type": "text", "text": text[:_MAX_TEXT_LEN]}]
+        endpoint, body, mode = self._resolve_target(messages)
+        logger.info("LINE 推播模式：%s", mode)  # 只印模式,不印任何 ID（避免外洩）
+        data = json.dumps(body, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(
-            LINE_PUSH_ENDPOINT,
+            endpoint,
             data=data,
             method="POST",
             headers={
