@@ -146,6 +146,21 @@ class DataAggregationAgent:
             warnings=tuple(warnings),
         )
 
+    def fetch_news(
+        self,
+        news_keywords: Sequence[str],
+        *,
+        lookback_days: int = NEWS_LOOKBACK_DAYS,
+        as_of_date: date | None = None,
+    ) -> list[NewsItem]:
+        """市場級新聞查詢（不綁單一個股）——供市場快訊統計國際 / 台股情緒。
+
+        沿用內部 `_fetch_news`（title/content 命中關鍵字即納入）,窗 = [as_of - lookback, as_of]。
+        """
+        as_of = as_of_date or date.today()
+        warnings: list[str] = []
+        return self._fetch_news(news_keywords, as_of, lookback_days, warnings)
+
     # --------------------------------------------------------------- private
     def _fetch_technical(
         self, tw_stock_id: str, warnings: list[str]
