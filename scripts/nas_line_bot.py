@@ -74,8 +74,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config import DEFAULT_WEIGHT_RATIO  # noqa: E402
 from multi_agent_system.pipeline import WatchItem  # noqa: E402
 from multi_agent_system.subscribers import (  # noqa: E402
-    JsonSubscriberStore,
+    SubscriberStore,
     SubscriberStoreError,
+    make_subscriber_store,
 )
 
 logger = logging.getLogger("multi_agent_system.bot")
@@ -252,7 +253,7 @@ def is_admin(user_id: str) -> bool:
 
 
 # ── 清單呈現 ─────────────────────────────────────────────────────────────────
-def format_list_for(store: JsonSubscriberStore, user_id: str) -> str:
+def format_list_for(store: SubscriberStore, user_id: str) -> str:
     items = store.get(user_id)
     if not items:
         return "你的盯盤清單是空的。傳「加 2330」加入第一檔。"
@@ -281,7 +282,7 @@ def handle_text(
     text: str,
     user_id: str,
     *,
-    store: JsonSubscriberStore,
+    store: SubscriberStore,
     allow_store: JsonAllowStore,
 ) -> str:
     """一則文字訊息 → 回覆字串。所有 store 皆注入,方便單測。"""
@@ -378,8 +379,9 @@ def line_reply(reply_token: str, text: str) -> None:
         logger.warning("LINE reply 失敗：%s", exc)
 
 
-def _store() -> JsonSubscriberStore:
-    return JsonSubscriberStore(os.environ.get("SUBSCRIBERS_FILE", "subscribers.json"))
+def _store() -> SubscriberStore:
+    # 依環境變數選 backend：設 GITHUB_TOKEN + GITHUB_REPO → 寫共享 repo JSON（雲端 dashboard 也看得到）。
+    return make_subscriber_store()
 
 
 def _allow_store() -> JsonAllowStore:

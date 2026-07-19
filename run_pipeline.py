@@ -78,15 +78,16 @@ def _resolve_db_paths(use_demo: bool) -> dict[str, str]:
 def _run_per_user(orchestrator: WorkflowOrchestrator, args) -> int:
     """個人化推播：每位訂閱者各自清單 → LINE push 逐人。"""
     from multi_agent_system.multiuser import run_per_user_push
-    from multi_agent_system.subscribers import JsonSubscriberStore
+    from multi_agent_system.subscribers import make_subscriber_store
 
     token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
     if not args.dry_run and not token:
         logger.error("個人化推播需 LINE_CHANNEL_ACCESS_TOKEN（或加 --dry-run 只預覽）")
         return 4
 
+    # backend 依環境變數自動選：設了 GITHUB_TOKEN + GITHUB_REPO → 讀 repo 內共享 JSON;否則本機檔。
     results = run_per_user_push(
-        JsonSubscriberStore(args.subscribers),
+        make_subscriber_store(local_path=args.subscribers),
         orchestrator,
         _build_macro_provider(),
         channel_access_token=token,
