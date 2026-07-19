@@ -161,8 +161,8 @@ streamlit run dashboard.py
 `render_provenance` / `render_mock_order` / `render_decision_panel` / `render_cycle_result` /
 `render_notification_center`。核心 agents **不** import streamlit（分層隔離，cron/測試可獨立跑）。
 
-**通知管道**：`Notifier` 介面現有 `ConsoleNotifier` / `StreamlitToastNotifier`；
-**LINE 推播**（`LineNotifier`）為預留骨架，接線後即插即用（規劃於視覺化之後）。
+**通知管道**：`Notifier` 介面現有 `ConsoleNotifier` / `StreamlitToastNotifier` / **`LineNotifier`（LINE 推播，已實作）**。
+LINE 走 Messaging API push、標準庫 `urllib`（無新相依、支援代理），詳見下方「排程執行」。
 
 ## 排程執行（早上 / 下午）
 
@@ -175,7 +175,19 @@ export STOCK_DB=/path/stock.db FUND_DB=/path/fund.db NEWS_DB=/path/news.db
 python run_pipeline.py --session morning                                   # 盤前場
 python run_pipeline.py --session afternoon --strict --output signals.json  # 收盤後場
 python run_pipeline.py --session morning --demo                            # 示範（自動 seed）
+python run_pipeline.py --session afternoon --line                          # 收盤後 + LINE 推播
 ```
+
+**LINE 推播**（`--line`）：一輪推**一則彙整訊息**（含新鮮度 + 各檔訊號），不逐檔洗版。
+走 LINE Messaging API push（LINE Notify 已停用），設兩個環境變數即可：
+
+```bash
+export LINE_CHANNEL_ACCESS_TOKEN=<Messaging API channel 的長期 token>
+export LINE_TO=<推播對象 userId / groupId>
+python run_pipeline.py --session afternoon --line
+```
+未設定卻加 `--line` → 明確報錯並回傳非 0（Fail-Loud，方便監控）。程式化用法：
+`from multi_agent_system import LineNotifier`（實作 `Notifier`，與 Console 可互換）。
 
 **建議時點（台灣時間，週一至週五）**：
 
@@ -197,7 +209,7 @@ python run_pipeline.py --session morning --demo                            # 示
 ## 測試
 
 ```bash
-pytest          # 81 個測試：單元 + 邊界 + 端到端 + Streamlit AppTest + 排程/新鮮度
+pytest          # 90 個測試：單元 + 邊界 + 端到端 + Streamlit AppTest + 排程/新鮮度
 ruff check .    # lint
 ```
 
@@ -223,7 +235,8 @@ ruff check .    # lint
 ├── multi_agent_system/
 │   ├── contracts.py              # dataclasses + Action enum
 │   ├── numerics.py               # clamp / linear_map / Sharpe
-│   ├── notifications.py          # Notifier / Console / LINE 骨架（無 streamlit）
+│   ├── notifications.py          # Notifier / Console（無 streamlit）
+│   ├── line_push.py              # LINE 推播（Messaging API, stdlib urllib）
 │   ├── data_agent.py             # ① 資料代理人
 │   ├── macro_agent.py            # ② 總經專家
 │   ├── macro_providers.py        #    總經來源介面 + 模擬/注入
@@ -243,5 +256,5 @@ ruff check .    # lint
 ├── deploy/crontab.example        # NAS/server 排程範例
 ├── .github/workflows/run_pipeline.yml   # GitHub Actions 排程（替代）
 ├── scripts/seed_demo_dbs.py      # 產生示範資料庫
-└── tests/                        # pytest（81 個：含 AppTest + 排程/新鮮度）
+└── tests/                        # pytest（90 個：含 AppTest + 排程/新鮮度）
 ```

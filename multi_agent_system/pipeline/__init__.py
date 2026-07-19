@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from .freshness import DbFreshness, FreshnessReport, check_freshness
-from .runner import PipelineRunner, RunReport, summarize
+from .runner import PipelineRunner, RunReport, format_run_digest, summarize
 from .watchlist import DEMO_WATCHLIST, WatchItem, load_db_paths
 
 __all__ = [
@@ -19,4 +19,5 @@ __all__ = [
     "PipelineRunner",
     "RunReport",
     "summarize",
+    "format_run_digest",
 ]

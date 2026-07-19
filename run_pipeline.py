@@ -29,15 +29,18 @@ from datetime import date
 from multi_agent_system import (
     ConsoleNotifier,
     DataAggregationAgent,
+    LinePusher,
     MockBrokerAPI,
     SimulatedMacroProvider,
     StaticMacroProvider,
     WorkflowOrchestrator,
 )
+from multi_agent_system.line_push import LinePushError
 from multi_agent_system.macro_providers import MacroDataProvider
 from multi_agent_system.pipeline import (
     DEMO_WATCHLIST,
     PipelineRunner,
+    format_run_digest,
     load_db_paths,
     summarize,
 )
@@ -80,6 +83,10 @@ def main(argv: list[str] | None = None) -> int:
         "--strict", action="store_true", help="資料過期即中止（Fail-Loud）"
     )
     parser.add_argument("--auto-trade", action="store_true", help="送出 Mock 委託")
+    parser.add_argument(
+        "--line", action="store_true",
+        help="推播一則 LINE 摘要（需環境變數 LINE_CHANNEL_ACCESS_TOKEN / LINE_TO）",
+    )
     parser.add_argument("--output", help="把 JSON 報告寫到此檔")
     parser.add_argument("--max-age-days", type=int, default=4)
     args = parser.parse_args(argv)
@@ -118,6 +125,21 @@ def main(argv: list[str] | None = None) -> int:
         with open(args.output, "w", encoding="utf-8") as fh:
             json.dump(report.to_dict(), fh, ensure_ascii=False, indent=2)
         logger.info("報告已寫入 %s", args.output)
+
+    if args.line:
+        pusher = LinePusher()
+        if not pusher.is_configured:
+            logger.error(
+                "要求 --line 但未設 LINE_CHANNEL_ACCESS_TOKEN / LINE_TO,略過推播"
+            )
+            return 4
+        try:
+            pusher.push_text(format_run_digest(report))
+            logger.info("已推播 LINE 摘要")
+        except LinePushError as exc:
+            logger.error("LINE 推播失敗：%s", exc)
+            return 4
+
     return 0
 
 

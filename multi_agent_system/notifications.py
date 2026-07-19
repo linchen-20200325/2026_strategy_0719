@@ -1,7 +1,7 @@
 """notifications.py — 通知抽象層（核心層,**無 streamlit 依賴**,供 cron / CLI 使用）。
 
 `Notifier` 介面統一「把決策推出去」;今天有 Console(CLI/cron),
-dashboard 內的 toast 在 ui/notify.py(需 streamlit),LINE 之後接（LineNotifier 骨架）。
+dashboard 內的 toast 在 ui/notify.py(需 streamlit),LINE 推播在 line_push.py(LineNotifier / LinePusher)。
 
 通知門檻:只推「可行動」訊號(非 Hold、非 abstain),避免洗版。
 """
@@ -49,26 +49,5 @@ class ConsoleNotifier:
             print(format_notification(decision))
 
 
-class LineNotifier:
-    """LINE 推播(規劃中,排在視覺化之後)。
-
-    設計:實作與 Console 相同的 `Notifier` 介面,屆時 runner 只要換注入即可。
-    尚未接線 → 明確 raise(Fail Loud),不靜默吞掉。
-
-    接線方式(LINE Messaging API push；LINE Notify 已於 2025 停用):
-        POST https://api.line.me/v2/bot/message/push
-        Header: Authorization: Bearer <channel_access_token>
-        Body:   {"to": <userId>, "messages": [{"type": "text", "text": <文字>}]}
-    """
-
-    def __init__(self, channel_access_token: str | None = None, to: str | None = None) -> None:
-        self.channel_access_token = channel_access_token
-        self.to = to
-
-    def notify(self, decision: FinalDecision) -> None:  # pragma: no cover - 尚未接線
-        if not should_notify(decision):
-            return
-        raise NotImplementedError(
-            "LineNotifier 尚未接線(依需求排在視覺化之後)。接線時於此 POST "
-            "LINE Messaging API /v2/bot/message/push，文字用 format_notification(decision)。"
-        )
+# LINE 推播的實作在 line_push.py（LineNotifier / LinePusher）;
+# 放獨立檔避免與本模組的純介面混雜,且 line_push 需 import 本模組的 helper（單向,不循環）。

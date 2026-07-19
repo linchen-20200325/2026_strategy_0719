@@ -19,7 +19,7 @@ from datetime import UTC, date, datetime
 from ..contracts import Action
 from ..integration_agent import CycleResult, ResearchRequest, WorkflowOrchestrator
 from ..macro_providers import MacroDataProvider
-from ..notifications import Notifier, should_notify
+from ..notifications import Notifier, format_notification, should_notify
 from .freshness import FreshnessReport, check_freshness
 from .watchlist import WatchItem
 
@@ -125,6 +125,28 @@ class PipelineRunner:
             "[%s] 完成:%d 標的,%d 個可行動訊號", session, len(results), n_act
         )
         return report
+
+
+def format_run_digest(report: RunReport) -> str:
+    """一則彙整訊息（供 LINE 推播:一輪一則,不逐訊號洗版）。"""
+    day = report.ran_at[:10]
+    label = {"morning": "早盤前", "afternoon": "收盤後"}.get(report.session, report.session)
+    head = f"📊 多智能體投研｜{label} {day}"
+    fresh = (
+        "✅ 資料新鮮"
+        if report.freshness.all_fresh
+        else f"⚠️ 資料過期：{report.freshness.stale_names}"
+    )
+    lines = [head, fresh]
+    actionable = report.actionable()
+    if actionable:
+        lines.extend(format_notification(r.decision) for r in actionable)
+    else:
+        lines.append("（本輪無可行動訊號）")
+    holds = len(report.results) - len(actionable)
+    if holds:
+        lines.append(f"其餘 {holds} 檔:觀望 / 資料不足")
+    return "\n".join(lines)
 
 
 def summarize(report: RunReport) -> str:

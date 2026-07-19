@@ -6,9 +6,9 @@
 
 from __future__ import annotations
 
+from ..line_push import LineNotifier
 from ..notifications import (
     ConsoleNotifier,
-    LineNotifier,
     Notifier,
     format_notification,
     should_notify,

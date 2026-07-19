@@ -30,6 +30,7 @@ from .integration_agent import (
     ResearchRequest,
     WorkflowOrchestrator,
 )
+from .line_push import LineNotifier, LinePusher
 from .macro_agent import MacroeconomicAgent
 from .macro_providers import (
     FredMacroProvider,
@@ -39,7 +40,6 @@ from .macro_providers import (
 )
 from .notifications import (
     ConsoleNotifier,
-    LineNotifier,
     Notifier,
     format_notification,
     should_notify,
@@ -82,6 +82,7 @@ __all__ = [
     "Notifier",
     "ConsoleNotifier",
     "LineNotifier",
+    "LinePusher",
     "should_notify",
     "format_notification",
     # helpers

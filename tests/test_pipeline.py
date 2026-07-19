@@ -126,9 +126,29 @@ def test_runner_invalid_session_raises(demo_paths):
         _runner(demo_paths).run("evening", as_of=AS_OF)
 
 
+# ------------------------------------------------------------------ digest
+def test_format_run_digest(demo_paths):
+    from multi_agent_system.pipeline import format_run_digest
+
+    report = _runner(demo_paths).run("afternoon", as_of=AS_OF)
+    digest = format_run_digest(report)
+    assert "收盤後" in digest
+    assert "2330" in digest
+    assert "資料新鮮" in digest
+
+
 # ------------------------------------------------------------------ CLI smoke
 def test_cli_demo_smoke():
     import run_pipeline
 
     rc = run_pipeline.main(["--session", "morning", "--demo"])
     assert rc == 0
+
+
+def test_cli_line_without_config_returns_4(monkeypatch):
+    monkeypatch.delenv("LINE_CHANNEL_ACCESS_TOKEN", raising=False)
+    monkeypatch.delenv("LINE_TO", raising=False)
+    import run_pipeline
+
+    rc = run_pipeline.main(["--session", "morning", "--demo", "--line"])
+    assert rc == 4  # 要求 --line 但未設定 → 明確非 0

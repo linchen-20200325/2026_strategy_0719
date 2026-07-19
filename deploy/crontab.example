@@ -18,17 +18,19 @@
 # 週一至週五(1-5)才跑;台股週末休市。
 # -----------------------------------------------------------------------------
 
-# 環境變數(三個 DB 路徑;可選:注入真實總經值)
+# 環境變數(三個 DB 路徑;可選:注入真實總經值 + LINE 推播)
 STOCK_DB=/volume1/data/stock.db
 FUND_DB=/volume1/data/fund.db
 NEWS_DB=/volume1/data/news.db
 # MACRO_SPREAD_PCT=0.85
 # MACRO_CPI_YOY_PCT=3.10
+# LINE_CHANNEL_ACCESS_TOKEN=xxxxx     # 設了才會實際推 LINE
+# LINE_TO=Uxxxxxxxx                    # 推播對象 userId / groupId
 
-# 早上場(08:30 TW,盤前)
-30 8 * * 1-5  cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session morning   --output logs/morning.json   >> logs/pipeline.log 2>&1
+# 早上場(08:30 TW,盤前) — 加 --line 推 LINE 彙整
+30 8 * * 1-5  cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session morning   --line --output logs/morning.json   >> logs/pipeline.log 2>&1
 
 # 下午場(14:30 TW,收盤後)
-30 14 * * 1-5 cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session afternoon --output logs/afternoon.json >> logs/pipeline.log 2>&1
+30 14 * * 1-5 cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session afternoon --line --output logs/afternoon.json >> logs/pipeline.log 2>&1
 
 # 提示:加 --strict 可讓「資料過期就中止並回傳非 0」,方便被監控偵測。
