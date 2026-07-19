@@ -1,0 +1,19 @@
+[project]
+name = "multi-agent-trading-system"
+version = "0.1.0"
+description = "多智能體虛擬投研與自動交易系統，對接 stock.db / fund.db / news.db 三個在地化資料庫"
+requires-python = ">=3.11"
+dependencies = ["pandas>=2.0,<4.0", "numpy>=1.24"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]

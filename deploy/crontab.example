@@ -1,0 +1,36 @@
+# =============================================================================
+# 多智能體投研 pipeline — NAS / server crontab 範例
+# =============================================================================
+# 這是「首選」排程方式:三個 SQLite DB 通常在 NAS/本機,cron 直接在同一台跑最單純。
+#
+# 安裝:  crontab -e  然後貼上下面兩行(改成你的實際路徑)。
+#
+# ⚠️ 時區:cron 用「機器本地時區」。以下假設機器為台灣時間(UTC+8)。
+#         若機器是 UTC,早上 08:30→改 30 0、下午 14:30→改 30 6。
+#         查機器時區:  timedatectl  或  date
+#
+# ⚠️ 時點原則(對照憲法 §2.3 發布延遲):
+#   - 早上場 08:30:開盤前。用「前一日收盤 + 隔夜美股(fund.db) + 隔夜新聞」→ 當日盤前計畫。
+#   - 下午場 14:30:台股 13:30 收盤後。用「當日已結算收盤」→ 收盤後調整。
+#     ★ 若你的 stock.db 是收盤後較晚(如 17:00)才更新,請把下午場往後移到更新之後,
+#       否則 freshness 守門會告警(這正是它的用途:防止跑在舊資料上)。
+#
+# 週一至週五(1-5)才跑;台股週末休市。
+# -----------------------------------------------------------------------------
+
+# 環境變數(三個 DB 路徑;可選:注入真實總經值 + LINE 推播)
+STOCK_DB=/volume1/data/stock.db
+FUND_DB=/volume1/data/fund.db
+NEWS_DB=/volume1/data/news.db
+# MACRO_SPREAD_PCT=0.85
+# MACRO_CPI_YOY_PCT=3.10
+# LINE_CHANNEL_ACCESS_TOKEN=xxxxx     # 設了才會實際推 LINE
+# LINE_TO=Uxxxxxxxx                    # 推播對象 userId / groupId
+
+# 早上場(08:30 TW,盤前) — 加 --line 推 LINE 彙整
+30 8 * * 1-5  cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session morning   --line --output logs/morning.json   >> logs/pipeline.log 2>&1
+
+# 下午場(14:30 TW,收盤後)
+30 14 * * 1-5 cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session afternoon --line --output logs/afternoon.json >> logs/pipeline.log 2>&1
+
+# 提示:加 --strict 可讓「資料過期就中止並回傳非 0」,方便被監控偵測。

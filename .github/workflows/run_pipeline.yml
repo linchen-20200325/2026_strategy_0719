@@ -1,0 +1,69 @@
+# 多智能體投研 pipeline — GitHub Actions 定時排程（替代方案）
+#
+# ⚠️ 前提:此方式只有在「GitHub Actions runner 讀得到三個 DB」時才可行。
+#   若 stock.db / fund.db / news.db 在你的 NAS/本機（最常見）,runner 讀不到 →
+#   請改用 deploy/crontab.example 在 NAS 上跑。
+#   要用 Actions 的話,得先讓 DB 可及（例:上一步 job 從你的服務下載 DB 到 runner,
+#   或 DB 放在 runner 拿得到的物件儲存）。
+#
+# 時區:cron 一律 UTC。台灣 = UTC+8。
+#   早上 08:30 TW = 00:30 UTC；下午 14:30 TW = 06:30 UTC。週一至週五。
+
+name: multi-agent-pipeline
+
+on:
+  schedule:
+    - cron: "30 0 * * 1-5"   # 08:30 TW（盤前）
+    - cron: "30 6 * * 1-5"   # 14:30 TW（收盤後）
+  workflow_dispatch:          # 也可手動觸發
+    inputs:
+      session:
+        description: "morning / afternoon"
+        default: "morning"
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      # TODO: 若 DB 不在 repo,於此步把三個 DB 取到 runner（下載/掛載/還原快照）。
+
+      - name: Decide session
+        id: sess
+        run: |
+          if [ -n "${{ github.event.inputs.session }}" ]; then
+            echo "session=${{ github.event.inputs.session }}" >> "$GITHUB_OUTPUT"
+          elif [ "$(date -u +%-H)" -lt 3 ]; then
+            echo "session=morning" >> "$GITHUB_OUTPUT"
+          else
+            echo "session=afternoon" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run pipeline
+        env:
+          STOCK_DB: ${{ secrets.STOCK_DB_PATH }}
+          FUND_DB: ${{ secrets.FUND_DB_PATH }}
+          NEWS_DB: ${{ secrets.NEWS_DB_PATH }}
+          MACRO_SPREAD_PCT: ${{ vars.MACRO_SPREAD_PCT }}
+          MACRO_CPI_YOY_PCT: ${{ vars.MACRO_CPI_YOY_PCT }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_TO: ${{ secrets.LINE_TO }}
+        run: |
+          # 設了 LINE secrets 才加 --line
+          LINE_FLAG=""
+          if [ -n "${LINE_CHANNEL_ACCESS_TOKEN}" ] && [ -n "${LINE_TO}" ]; then LINE_FLAG="--line"; fi
+          python run_pipeline.py --session "${{ steps.sess.outputs.session }}" $LINE_FLAG --output signals.json
+
+      - name: Upload signals
+        uses: actions/upload-artifact@v4
+        with:
+          name: signals-${{ steps.sess.outputs.session }}
+          path: signals.json

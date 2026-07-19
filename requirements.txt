@@ -1,0 +1,12 @@
+# 多智能體投研系統 — 相依套件
+# 核心運算（資料層 sqlite3 為 Python 標準庫，無需列出）
+pandas>=2.0,<4.0
+numpy>=1.24
+
+# UI / 通知元件（core 不依賴；僅 multi_agent_system.ui + dashboard.py 使用）
+# 版本區間對齊既有 dashboard 的 pin，確保無縫整合
+streamlit>=1.36,<1.60
+altair>=5.0
+
+# 測試
+pytest>=7.0
