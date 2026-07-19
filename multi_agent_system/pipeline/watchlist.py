@@ -12,7 +12,12 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+import pandas as pd
+
 from ..contracts import PortfolioState
+
+# UI 編輯表欄位（st.data_editor 用;為顯示標籤,轉換邏輯集中在本檔）
+DF_COLUMNS = ["類別", "代號", "連動美股/基金", "新聞關鍵字", "權重", "Sharpe"]
 
 
 @dataclass(frozen=True)
@@ -23,6 +28,7 @@ class WatchItem:
     current_weight_ratio: float
     max_weight_ratio: float = 0.20
     sharpe: float | None = None
+    category: str = "台股"        # 台股 / ETF / 基金（供 UI 分組;不影響 pipeline 計算）
 
     def portfolio_state(self) -> PortfolioState:
         return PortfolioState(
@@ -47,3 +53,50 @@ def load_db_paths(*, allow_demo: bool = False) -> dict[str, str]:
         hint = "（或用 --demo 跑示範資料）" if allow_demo else ""
         raise OSError(f"缺少環境變數 {missing}，請設定三個 DB 路徑{hint}")
     return {pkey: os.environ[env] for pkey, env in keys.items()}
+
+
+def watchlist_to_df(items: list[WatchItem] | tuple[WatchItem, ...]) -> pd.DataFrame:
+    """WatchItem 清單 → 編輯表 DataFrame（供 st.data_editor）。"""
+    return pd.DataFrame(
+        [
+            {
+                "類別": it.category,
+                "代號": it.tw_stock_id,
+                "連動美股/基金": it.us_stock_id,
+                "新聞關鍵字": ",".join(it.keywords),
+                "權重": it.current_weight_ratio,
+                "Sharpe": it.sharpe,
+            }
+            for it in items
+        ],
+        columns=DF_COLUMNS,
+    )
+
+
+def watchlist_from_df(df: pd.DataFrame) -> list[WatchItem]:
+    """編輯表 DataFrame → WatchItem 清單。空代號列略過;缺值套用安全預設（不炸）。"""
+    items: list[WatchItem] = []
+    for _, row in df.iterrows():
+        code = str(row.get("代號", "") or "").strip()
+        if not code:
+            continue  # 空列/未填代號 → 略過
+        kw_raw = str(row.get("新聞關鍵字", "") or "").replace("，", ",")
+        keywords = tuple(k.strip() for k in kw_raw.split(",") if k.strip())
+
+        weight_raw = row.get("權重")
+        weight = 0.10 if weight_raw is None or pd.isna(weight_raw) else float(weight_raw)
+
+        sharpe_raw = row.get("Sharpe")
+        sharpe = None if sharpe_raw is None or pd.isna(sharpe_raw) else float(sharpe_raw)
+
+        items.append(
+            WatchItem(
+                tw_stock_id=code,
+                us_stock_id=str(row.get("連動美股/基金", "") or "").strip(),
+                keywords=keywords,
+                current_weight_ratio=weight,
+                sharpe=sharpe,
+                category=str(row.get("類別", "台股") or "台股").strip(),
+            )
+        )
+    return items

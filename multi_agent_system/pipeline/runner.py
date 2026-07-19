@@ -149,6 +149,28 @@ def format_run_digest(report: RunReport) -> str:
     return "\n".join(lines)
 
 
+def bullish_ranked(results: Sequence[CycleResult]) -> list[CycleResult]:
+    """篩出「利多」標的（強烈買進 / 適度加碼、非 abstain）並依 Final Score 由高到低排序。"""
+    bull = [
+        r
+        for r in results
+        if r.decision.action.is_bullish
+        and not r.decision.abstained
+        and r.decision.final_score is not None
+    ]
+    return sorted(bull, key=lambda r: r.decision.final_score, reverse=True)
+
+
+def format_bullish_digest(results: Sequence[CycleResult], *, title: str = "📈 目前利多標的") -> str:
+    """利多榜 → 一則 LINE 文字（供推播）。無利多時誠實說明。"""
+    ranked = bullish_ranked(results)
+    if not ranked:
+        return f"{title}\n（目前無利多訊號）"
+    lines = [title]
+    lines.extend(f"{i}. {format_notification(r.decision)}" for i, r in enumerate(ranked, 1))
+    return "\n".join(lines)
+
+
 def summarize(report: RunReport) -> str:
     """人可讀的一段摘要（供 log / stdout）。"""
     lines = [
