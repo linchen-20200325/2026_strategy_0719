@@ -1,0 +1,180 @@
+"""contracts.py — 系統內部資料契約 (typed dataclasses + enums)。
+
+所有 agent 之間傳遞的物件都在此定義，達成「邊界契約 (Schema)」：
+每個欄位帶單位/來源，關鍵資料帶血緣 (provenance: source / fetched_at / as_of)。
+
+設計原則（對照使用者 CLAUDE.md）：
+* Fail Loud：資料缺席時以 `available=False` + 明確 reason 呈現，不塞假值。
+* Provenance：跨庫抓來的每一段都帶 source 與時間戳。
+* 不可變：對外快照一律 frozen dataclass，避免下游誤改。
+"""
+
+from __future__ import annotations
+
+import enum
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+
+
+def utc_now() -> datetime:
+    """統一以 UTC 產生 fetched_at（顯示時再轉本地 UTC+8）。"""
+    return datetime.now(UTC)
+
+
+class Action(enum.Enum):
+    """五大交易行動訊號（依 Final Score 由高到低）。"""
+
+    STRONG_BUY = "強烈買進 (Strong Buy)"
+    ADD = "適度加碼 (Add)"
+    HOLD = "持股觀望 (Hold)"
+    REDUCE = "適度減碼 (Reduce)"
+    STRONG_SELL = "強烈賣出 (Strong Sell)"
+
+    @property
+    def is_bullish(self) -> bool:
+        return self in (Action.STRONG_BUY, Action.ADD)
+
+
+# 由多頭到空頭的排序（供風控 hard-override 比較「不得比 REDUCE 更偏多」）。
+ACTION_BULLISH_ORDER: tuple[Action, ...] = (
+    Action.STRONG_SELL,
+    Action.REDUCE,
+    Action.HOLD,
+    Action.ADD,
+    Action.STRONG_BUY,
+)
+
+
+# ------------------------------------------------------------------ 資料層快照
+
+@dataclass(frozen=True)
+class TechnicalSnapshot:
+    """個股最新一期技術面（來源：my-stock-dashboard / stock.db）。"""
+
+    stock_id: str
+    as_of: str                 # 資料歸屬日 (YYYY-MM-DD)，非抓取日
+    close: float
+    rsi: float
+    upper_band: float          # 布林上軌
+    lower_band: float          # 布林下軌
+    source: str = "stock.db"
+    fetched_at: datetime = field(default_factory=utc_now)
+
+
+@dataclass(frozen=True)
+class UsLinkSnapshot:
+    """連動美股/基金最新一期（來源：my-Fund-dashboard / fund.db）。"""
+
+    us_stock_id: str
+    as_of: str
+    close: float
+    source: str = "fund.db"
+    fetched_at: datetime = field(default_factory=utc_now)
+
+
+@dataclass(frozen=True)
+class NewsItem:
+    """單則新聞（來源：mynews / news.db）。"""
+
+    as_of: str
+    title: str
+    sentiment_score: float     # 假設 ∈ [-1, 1]
+
+
+@dataclass(frozen=True)
+class DataPacket:
+    """資料代理人打包的標準封包（跨三庫整合結果）。"""
+
+    tw_stock_id: str
+    technical: TechnicalSnapshot | None
+    us_link: UsLinkSnapshot | None
+    news: tuple[NewsItem, ...]
+    news_sentiment_mean: float | None   # 過去 N 天平均情緒；無新聞則 None
+    news_count: int
+    warnings: tuple[str, ...] = ()      # 缺料/降級的明確告警（不靜默）
+    fetched_at: datetime = field(default_factory=utc_now)
+
+    @property
+    def has_technical(self) -> bool:
+        return self.technical is not None
+
+    def to_json_dict(self) -> dict:
+        """轉為可序列化 JSON 封包（datetime → ISO 字串）。"""
+        def snap(obj):
+            if obj is None:
+                return None
+            d = obj.__dict__.copy()
+            for k, v in d.items():
+                if isinstance(v, datetime):
+                    d[k] = v.isoformat()
+            return d
+
+        return {
+            "tw_stock_id": self.tw_stock_id,
+            "technical": snap(self.technical),
+            "us_link": snap(self.us_link),
+            "news": [snap(n) for n in self.news],
+            "news_sentiment_mean": self.news_sentiment_mean,
+            "news_count": self.news_count,
+            "warnings": list(self.warnings),
+            "fetched_at": self.fetched_at.isoformat(),
+        }
+
+
+# ------------------------------------------------------------------ 專家輸出
+
+@dataclass(frozen=True)
+class AgentVerdict:
+    """單一專家的評估結果。
+
+    score ∈ [0,1]（1=最看多/最健康）；資料不足時 score=None 且 available=False。
+    """
+
+    agent: str
+    available: bool
+    score: float | None
+    reason: str
+    diagnostics: dict = field(default_factory=dict)
+
+    @staticmethod
+    def unavailable(agent: str, reason: str) -> AgentVerdict:
+        return AgentVerdict(agent=agent, available=False, score=None, reason=reason)
+
+
+@dataclass(frozen=True)
+class MacroReading:
+    """總經原始輸入（殖利率利差 + CPI + 情緒），帶血緣與模擬旗標。"""
+
+    yield_spread_pct: float     # 10Y - 2Y，單位百分點
+    cpi_yoy_pct: float          # CPI 年增率，單位百分點
+    source: str
+    as_of: str
+    is_simulated: bool          # True = 模擬/注入值，非真實 API（Fail Loud 透明化）
+
+
+@dataclass(frozen=True)
+class PortfolioState:
+    """資產配置專家的輸入（來自呼叫端的投組現況，非三庫資料）。"""
+
+    current_weight_ratio: float           # 該標的目前佔投組比例（小數，0~1）
+    max_weight_ratio: float               # 允許上限（小數）
+    sharpe: float | None = None           # 現成 Sharpe；與 returns 二擇一
+    returns: tuple[float, ...] | None = None  # 日報酬序列（供自算 Sharpe）
+
+
+@dataclass(frozen=True)
+class FinalDecision:
+    """策略專家的決策融合輸出。"""
+
+    tw_stock_id: str
+    action: Action
+    final_score: float | None             # 資料不足時 None（abstain）
+    abstained: bool
+    risk_control_triggered: bool
+    verdicts: dict                        # {agent_name: AgentVerdict}
+    rationale: str
+    decided_at: datetime = field(default_factory=utc_now)
+
+    def summary(self) -> str:
+        score_txt = "N/A" if self.final_score is None else f"{self.final_score:.3f}"
+        return f"[{self.tw_stock_id}] {self.action.value} | Final={score_txt}"

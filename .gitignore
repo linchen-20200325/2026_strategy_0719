@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# 測試 / 工具快取
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# 產生的 DEMO 資料庫（由 scripts/seed_demo_dbs.py 產生，不入庫）
+demo_data/
+
+# 虛擬環境
+.venv/
+venv/
+env/
+
+# 編輯器
+.vscode/
+.idea/
+*.swp
+.DS_Store
