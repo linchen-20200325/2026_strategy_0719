@@ -6,13 +6,14 @@
 # 安裝:  crontab -e  然後貼上下面兩行(改成你的實際路徑)。
 #
 # ⚠️ 時區:cron 用「機器本地時區」。以下假設機器為台灣時間(UTC+8)。
-#         若機器是 UTC,早上 08:30→改 30 0、下午 14:30→改 30 6。
+#         若機器是 UTC:早上 07:30 TW = 前一日 23:30 UTC→改「30 23 * * 0-4」(週日~四);
+#         下午 16:30 TW = 當日 08:30 UTC→改「30 8 * * 1-5」。
 #         查機器時區:  timedatectl  或  date
 #
 # ⚠️ 時點原則(對照憲法 §2.3 發布延遲):
-#   - 早上場 08:30:開盤前。用「前一日收盤 + 隔夜美股(fund.db) + 隔夜新聞」→ 當日盤前計畫。
-#   - 下午場 14:30:台股 13:30 收盤後。用「當日已結算收盤」→ 收盤後調整。
-#     ★ 若你的 stock.db 是收盤後較晚(如 17:00)才更新,請把下午場往後移到更新之後,
+#   - 早上場 07:30:開盤前(09:00 開盤前)。用「前一日收盤 + 隔夜美股(fund.db) + 隔夜新聞」→ 當日盤前計畫。
+#   - 下午場 16:30:台股 13:30 收盤後。用「當日已結算收盤」→ 收盤後調整。
+#     ★ 若你的 stock.db 是收盤後較晚(如 17:00)才更新,請把下午場再往後移到更新之後,
 #       否則 freshness 守門會告警(這正是它的用途:防止跑在舊資料上)。
 #
 # 週一至週五(1-5)才跑;台股週末休市。
@@ -32,11 +33,11 @@ NEWS_DB=/volume1/data/news.db
 # =============================================================================
 
 # ── A) 群發:一份彙整推給 LINE_TO(broadcast / 名單 / 單一對象)──────────────
-# 早上場(08:30 TW,盤前) — 加 --line 推 LINE 彙整
-30 8 * * 1-5  cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session morning   --line --output logs/morning.json   >> logs/pipeline.log 2>&1
+# 早上場(07:30 TW,盤前) — 加 --line 推 LINE 彙整
+30 7 * * 1-5  cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session morning   --line --output logs/morning.json   >> logs/pipeline.log 2>&1
 
-# 下午場(14:30 TW,收盤後)
-30 14 * * 1-5 cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session afternoon --line --output logs/afternoon.json >> logs/pipeline.log 2>&1
+# 下午場(16:30 TW,收盤後)
+30 16 * * 1-5 cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session afternoon --line --output logs/afternoon.json >> logs/pipeline.log 2>&1
 
 # ── B) 個人化:每位訂閱者各自清單 → 逐人 push 自己的利多(取代上面 A 的 --line)──
 # 前提:① 設了 LINE_CHANNEL_ACCESS_TOKEN(--per-user **不需** LINE_TO,對象取自清單)
@@ -44,7 +45,7 @@ NEWS_DB=/volume1/data/news.db
 #       ③ --subscribers 路徑要與 webhook 的 SUBSCRIBERS_FILE **完全一致**(建議都用絕對路徑)
 #       先手動 dry-run 驗一次:  python3 run_pipeline.py --session afternoon --per-user --dry-run
 # 若採 B,請把上面 A 的兩行註解掉,改用下面兩行:
-# 30 8  * * 1-5 cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session morning   --per-user --subscribers /volume1/data/subscribers.json >> logs/pipeline.log 2>&1
-# 30 14 * * 1-5 cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session afternoon --per-user --subscribers /volume1/data/subscribers.json >> logs/pipeline.log 2>&1
+# 30 7  * * 1-5 cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session morning   --per-user --subscribers /volume1/data/subscribers.json >> logs/pipeline.log 2>&1
+# 30 16 * * 1-5 cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session afternoon --per-user --subscribers /volume1/data/subscribers.json >> logs/pipeline.log 2>&1
 
 # 提示:加 --strict 可讓「資料過期就中止並回傳非 0」,方便被監控偵測。
