@@ -2,7 +2,7 @@
 name = "multi-agent-trading-system"
 version = "0.1.0"
 description = "多智能體虛擬投研與自動交易系統，對接 stock.db / fund.db / news.db 三個在地化資料庫"
-requires-python = ">=3.11"
+requires-python = ">=3.8"
 dependencies = ["pandas>=2.0,<4.0", "numpy>=1.24"]
 
 [tool.pytest.ini_options]
@@ -12,7 +12,9 @@ addopts = "-q"
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+# py38：部署目標含 Synology NAS 內建 python 3.8（webhook bot 零安裝跑在上面）。
+# 這也讓 ruff 不會把 timezone.utc 自動改回 3.11-only 的 datetime.UTC（UP017）。
+target-version = "py38"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]

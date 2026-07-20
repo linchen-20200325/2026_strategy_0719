@@ -13,12 +13,12 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 
 def utc_now() -> datetime:
     """統一以 UTC 產生 fetched_at（顯示時再轉本地 UTC+8）。"""
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 class Action(enum.Enum):

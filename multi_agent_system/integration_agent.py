@@ -32,7 +32,7 @@ import time
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import date, datetime, timezone
 from typing import Protocol
 
 from config import NEWS_LOOKBACK_DAYS
@@ -60,7 +60,7 @@ class OrderReceipt:
     quantity: float
     status: str
     is_mock: bool
-    placed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    placed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class BrokerAPI(Protocol):
