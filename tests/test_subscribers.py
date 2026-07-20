@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import pytest
 
+from multi_agent_system.github_store import GithubSubscriberStore
 from multi_agent_system.pipeline import WatchItem
 from multi_agent_system.subscribers import (
     JsonSubscriberStore,
     SubscriberStoreError,
     item_from_dict,
     item_to_dict,
+    make_subscriber_store,
+    store_is_github,
 )
 
 
@@ -73,3 +76,30 @@ def test_store_non_object_raises(tmp_path):
     store = JsonSubscriberStore(str(path))
     with pytest.raises(SubscriberStoreError):
         store.user_ids()
+
+
+# ---------------------------------------------------------------- backend factory
+def test_factory_local_by_default(tmp_path):
+    env = {"SUBSCRIBERS_FILE": str(tmp_path / "s.json")}
+    store = make_subscriber_store(get_env=env.get)
+    assert isinstance(store, JsonSubscriberStore)
+    assert not store_is_github(get_env=env.get)
+
+
+def test_factory_local_path_overrides_env(tmp_path):
+    store = make_subscriber_store(get_env={}.get, local_path=str(tmp_path / "x.json"))
+    assert isinstance(store, JsonSubscriberStore)
+    assert store.path.endswith("x.json")
+
+
+def test_factory_github_when_token_and_repo():
+    env = {"GITHUB_TOKEN": "t", "GITHUB_REPO": "owner/repo"}
+    store = make_subscriber_store(get_env=env.get)
+    assert isinstance(store, GithubSubscriberStore)
+    assert store_is_github(get_env=env.get)
+
+
+def test_factory_explicit_local_beats_github_creds():
+    env = {"SUBSCRIBERS_BACKEND": "local", "GITHUB_TOKEN": "t", "GITHUB_REPO": "o/r"}
+    store = make_subscriber_store(get_env=env.get)
+    assert isinstance(store, JsonSubscriberStore)   # 明示 local 蓋過 github 憑證

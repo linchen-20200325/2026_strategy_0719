@@ -125,3 +125,35 @@ class JsonSubscriberStore:
         data = self._load()
         if data.pop(user_id, None) is not None:
             self._save(data)
+
+
+def make_subscriber_store(*, get_env=None, local_path: str | None = None) -> SubscriberStore:
+    """依環境變數選 backend（dashboard / cron / webhook 共用一個入口 → SSOT）。
+
+    - SUBSCRIBERS_BACKEND=github（或未設但有 GITHUB_TOKEN + GITHUB_REPO）→ GithubSubscriberStore
+      （雲端 + NAS 共用 repo 內 JSON）。用 SUBSCRIBERS_REPO_PATH（預設 subscribers.json）/ GITHUB_BRANCH。
+    - 否則 → JsonSubscriberStore（本機檔，路徑 local_path > SUBSCRIBERS_FILE > subscribers.json）。
+
+    get_env 可注入（測試 / 讀 st.secrets 用），預設讀 os.environ。
+    local_path 由 CLI flag（--subscribers / --store）傳入，優先於 SUBSCRIBERS_FILE。
+    """
+    env = get_env or os.environ.get
+    backend = (env("SUBSCRIBERS_BACKEND") or "").strip().lower()
+    token, repo = env("GITHUB_TOKEN"), env("GITHUB_REPO")
+    use_github = backend == "github" or (not backend and token and repo)
+    if use_github:
+        from .github_store import GithubSubscriberStore  # lazy：避免循環 import
+
+        return GithubSubscriberStore(
+            token or "", repo or "",
+            path=env("SUBSCRIBERS_REPO_PATH") or "subscribers.json",
+            branch=env("GITHUB_BRANCH") or "main",
+        )
+    return JsonSubscriberStore(local_path or env("SUBSCRIBERS_FILE") or "subscribers.json")
+
+
+def store_is_github(*, get_env=None) -> bool:
+    """上層（dashboard）判斷是否已設定 GitHub 持久化（用來決定要不要顯示『存得住』）。"""
+    env = get_env or os.environ.get
+    backend = (env("SUBSCRIBERS_BACKEND") or "").strip().lower()
+    return backend == "github" or (not backend and bool(env("GITHUB_TOKEN")) and bool(env("GITHUB_REPO")))

@@ -16,6 +16,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
+from config import SESSION_LABELS
+
 from ..contracts import Action
 from ..integration_agent import CycleResult, ResearchRequest, WorkflowOrchestrator
 from ..macro_providers import MacroDataProvider
@@ -141,7 +143,7 @@ class PipelineRunner:
 def format_run_digest(report: RunReport) -> str:
     """一則彙整訊息（供 LINE 推播:一輪一則,不逐訊號洗版）。"""
     day = report.ran_at[:10]
-    label = {"morning": "早盤前", "afternoon": "收盤後"}.get(report.session, report.session)
+    label = SESSION_LABELS.get(report.session, report.session)
     head = f"📊 多智能體投研｜{label} {day}"
     fresh = (
         "✅ 資料新鮮"

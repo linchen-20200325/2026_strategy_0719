@@ -29,23 +29,22 @@ NEWS_DB=/volume1/data/news.db
 # LINE_TO=Uxxxxxxxx                    # 推播對象 userId / groupId
 
 # =============================================================================
-# 推播二選一:A 群發(所有人同一份) 或 B 個人化(每人各自清單)。不要同一標的重複推。
+# 推播（mynews 風格分工）:①市場快訊 broadcast 全體 + ②個股利多 per-user 逐人。
+# 兩者內容不同、不重複,可同時跑。國際情勢要真值 → 取消上面 MACRO_* 兩行的註解(從 my-stock 帶入)。
 # =============================================================================
 
-# ── A) 群發:一份彙整推給 LINE_TO(broadcast / 名單 / 單一對象)──────────────
-# 早上場(07:30 TW,盤前) — 加 --line 推 LINE 彙整
-30 7 * * 1-5  cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session morning   --line --output logs/morning.json   >> logs/pipeline.log 2>&1
+# ── ① 市場快訊(國際情勢 + 台股)→ broadcast 全體好友(同 mynews 主報告;免 LINE_TO)──
+30 7 * * 1-5  cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session morning   --market-digest >> logs/pipeline.log 2>&1
+30 16 * * 1-5 cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session afternoon --market-digest >> logs/pipeline.log 2>&1
 
-# 下午場(16:30 TW,收盤後)
-30 16 * * 1-5 cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session afternoon --line --output logs/afternoon.json >> logs/pipeline.log 2>&1
+# ── ② 個股利多 → per-user 逐人(每位訂閱者各自清單;免 LINE_TO,對象取自清單)──────
+# 前提:subscribers.json 由 scripts/nas_line_bot.py(webhook)維護,--subscribers 路徑要與
+#       webhook 的 SUBSCRIBERS_FILE 一致(見 deploy/nas_line_bot.md / shared_watchlist.md)。
+#       先 dry-run 驗:  python3 run_pipeline.py --session afternoon --per-user --dry-run
+30 7 * * 1-5  cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session morning   --per-user --subscribers /volume1/data/subscribers.json >> logs/pipeline.log 2>&1
+30 16 * * 1-5 cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session afternoon --per-user --subscribers /volume1/data/subscribers.json >> logs/pipeline.log 2>&1
 
-# ── B) 個人化:每位訂閱者各自清單 → 逐人 push 自己的利多(取代上面 A 的 --line)──
-# 前提:① 設了 LINE_CHANNEL_ACCESS_TOKEN(--per-user **不需** LINE_TO,對象取自清單)
-#       ② subscribers.json 由 scripts/nas_line_bot.py(webhook)維護 —— 見 deploy/nas_line_bot.md
-#       ③ --subscribers 路徑要與 webhook 的 SUBSCRIBERS_FILE **完全一致**(建議都用絕對路徑)
-#       先手動 dry-run 驗一次:  python3 run_pipeline.py --session afternoon --per-user --dry-run
-# 若採 B,請把上面 A 的兩行註解掉,改用下面兩行:
-# 30 7  * * 1-5 cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session morning   --per-user --subscribers /volume1/data/subscribers.json >> logs/pipeline.log 2>&1
-# 30 16 * * 1-5 cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session afternoon --per-user --subscribers /volume1/data/subscribers.json >> logs/pipeline.log 2>&1
+# ── (替代) 只想要一份簡易群發 per-stock 摘要(不分國際/台股)→ 用 --line + LINE_TO ──
+# 30 16 * * 1-5 cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session afternoon --line --output logs/afternoon.json >> logs/pipeline.log 2>&1
 
 # 提示:加 --strict 可讓「資料過期就中止並回傳非 0」,方便被監控偵測。

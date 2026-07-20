@@ -32,6 +32,11 @@ from multi_agent_system.pipeline import (
     watchlist_from_df,
     watchlist_to_df,
 )
+from multi_agent_system.subscribers import (
+    SubscriberStoreError,
+    make_subscriber_store,
+    store_is_github,
+)
 from multi_agent_system.ui import render_cycle_result
 from scripts.seed_demo_dbs import default_demo_dir, seed_all
 
@@ -62,24 +67,59 @@ def _request(item: WatchItem, *, auto_trade: bool = False) -> ResearchRequest:
     )
 
 
-def _watchlist() -> list[WatchItem]:
-    if "watchlist" not in st.session_state:
-        st.session_state.watchlist = list(DEMO_WATCHLIST)
-    return st.session_state.watchlist
-
-
 def _secret(key: str) -> str | None:
-    """安全讀 st.secrets（無 secrets 檔時不炸）;LinePusher 再退回環境變數。"""
+    """安全讀 st.secrets（無 secrets 檔時不炸）;下游再退回環境變數。"""
     try:
         return st.secrets.get(key)  # type: ignore[no-any-return]
     except Exception:  # noqa: BLE001 - 無 secrets 檔 → 視為未設定
         return None
 
 
+def _persist_store():
+    """已設 App Secrets 的 GITHUB_TOKEN + GITHUB_REPO → 回 GitHub 持久化 store;否則 None（demo）。"""
+    if not store_is_github(get_env=_secret):
+        return None
+    try:
+        return make_subscriber_store(get_env=_secret)
+    except SubscriberStoreError as exc:
+        st.warning(f"GitHub 清單設定有誤，暫用示範清單：{exc}")
+        return None
+
+
+def _owner_id() -> str | None:
+    """dashboard 這份清單掛在哪個 userId 底下（= 你自己的 LINE userId）。"""
+    return _secret("WATCH_OWNER_ID")
+
+
+def _watchlist() -> list[WatchItem]:
+    if "watchlist" not in st.session_state:
+        store, owner = _persist_store(), _owner_id()
+        if store is not None and owner:
+            try:
+                items = store.get(owner)
+                st.session_state.watchlist = items or list(DEMO_WATCHLIST)
+            except SubscriberStoreError as exc:
+                st.warning(f"讀 GitHub 清單失敗，暫用示範：{exc}")
+                st.session_state.watchlist = list(DEMO_WATCHLIST)
+        else:
+            st.session_state.watchlist = list(DEMO_WATCHLIST)
+    return st.session_state.watchlist
+
+
 # ------------------------------------------------------------------ 分頁
 
 def _tab_watchlist() -> None:
     st.subheader("📋 我的追蹤清單")
+    store, owner = _persist_store(), _owner_id()
+    if store is not None and owner:
+        st.caption(f"✅ 已接 GitHub 持久化（owner `{owner[:8]}…`）—— 加了會寫進 repo，雲端 / NAS 共用同一份。")
+    elif store is not None and not owner:
+        st.caption("⚠️ 已設 GITHUB_TOKEN/REPO 但缺 `WATCH_OWNER_ID`（你的 LINE userId）→ 仍只存本次 session。")
+    else:
+        st.caption(
+            "ℹ️ 未接持久化：加了只存本次 session、重整就回示範。要存得住 → App → Settings → Secrets "
+            "填 `GITHUB_TOKEN` / `GITHUB_REPO`（owner/name）/ `WATCH_OWNER_ID`（你的 LINE userId）。"
+        )
     st.caption(
         "台股 / ETF 代號 → stock.db;連動美股 / 基金 → fund.db;新聞關鍵字 → news.db。"
         "可直接編輯、加列（右下 +）、刪列。"
@@ -96,9 +136,25 @@ def _tab_watchlist() -> None:
         },
         key="watchlist_editor",
     )
-    if st.button("💾 套用清單"):
-        st.session_state.watchlist = watchlist_from_df(edited)
-        st.success(f"已更新追蹤清單（{len(st.session_state.watchlist)} 檔）。")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("💾 套用清單"):
+            st.session_state.watchlist = watchlist_from_df(edited)
+            if store is not None and owner:
+                try:
+                    store.set(owner, st.session_state.watchlist)
+                    st.success(f"已存到 GitHub（{len(st.session_state.watchlist)} 檔）,雲端 / NAS 共用。")
+                except SubscriberStoreError as exc:
+                    st.error(f"存 GitHub 失敗：{exc}")
+            else:
+                st.success(f"已更新（{len(st.session_state.watchlist)} 檔,僅本次 session）。")
+    with c2:
+        if store is not None and owner and st.button("🔄 從 GitHub 重載"):
+            try:
+                st.session_state.watchlist = store.get(owner) or []
+                st.success("已從 GitHub 重新載入清單。")
+            except SubscriberStoreError as exc:
+                st.error(f"重載失敗：{exc}")
     st.caption("⚠️ 線上 demo 只有 2330 / 2454 有資料;加自己的標的需接真實三庫才有數。")
 
 

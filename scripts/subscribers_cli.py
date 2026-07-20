@@ -18,7 +18,7 @@ import sys
 
 from config import DEFAULT_WEIGHT_RATIO
 from multi_agent_system.pipeline import WatchItem
-from multi_agent_system.subscribers import JsonSubscriberStore
+from multi_agent_system.subscribers import make_subscriber_store
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -41,7 +41,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("user_id")
 
     args = parser.parse_args(argv)
-    store = JsonSubscriberStore(args.store)
+    # 設了 GITHUB_TOKEN + GITHUB_REPO → 寫共享 repo JSON;否則本機 --store 檔。
+    store = make_subscriber_store(local_path=args.store)
 
     if args.cmd == "add":
         keywords = tuple(

@@ -78,15 +78,16 @@ def _resolve_db_paths(use_demo: bool) -> dict[str, str]:
 def _run_per_user(orchestrator: WorkflowOrchestrator, args) -> int:
     """個人化推播：每位訂閱者各自清單 → LINE push 逐人。"""
     from multi_agent_system.multiuser import run_per_user_push
-    from multi_agent_system.subscribers import JsonSubscriberStore
+    from multi_agent_system.subscribers import make_subscriber_store
 
     token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
     if not args.dry_run and not token:
         logger.error("個人化推播需 LINE_CHANNEL_ACCESS_TOKEN（或加 --dry-run 只預覽）")
         return 4
 
+    # backend 依環境變數自動選：設了 GITHUB_TOKEN + GITHUB_REPO → 讀 repo 內共享 JSON;否則本機檔。
     results = run_per_user_push(
-        JsonSubscriberStore(args.subscribers),
+        make_subscriber_store(local_path=args.subscribers),
         orchestrator,
         _build_macro_provider(),
         channel_access_token=token,
@@ -100,6 +101,46 @@ def _run_per_user(orchestrator: WorkflowOrchestrator, args) -> int:
         if r.error:
             line += f"（錯誤：{r.error}）"
         print(line)
+    return 0
+
+
+def _run_market_digest(orchestrator: WorkflowOrchestrator, args) -> int:
+    """市場快訊（國際情勢 + 台股）→ broadcast 全體好友（同 mynews 主報告）。"""
+    from config import INTL_NEWS_KEYWORDS, TW_MARKET_KEYWORDS
+    from multi_agent_system.market_digest import (
+        build_market_digest,
+        summarize_news,
+        tally_watchlist,
+    )
+    from multi_agent_system.pipeline import DEMO_WATCHLIST, build_request
+
+    token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+    if not args.dry_run and not token:
+        logger.error("市場快訊 broadcast 需 LINE_CHANNEL_ACCESS_TOKEN（或加 --dry-run 只預覽）")
+        return 4
+
+    macro = _build_macro_provider()
+    as_of = date.today()
+    results = orchestrator.run_batch(
+        [build_request(it, macro, as_of=as_of) for it in DEMO_WATCHLIST]
+    )
+    agent = orchestrator.data_agent
+    intl = summarize_news(agent.fetch_news(INTL_NEWS_KEYWORDS, as_of_date=as_of))
+    tw = summarize_news(agent.fetch_news(TW_MARKET_KEYWORDS, as_of_date=as_of))
+    digest = build_market_digest(
+        session=args.session, day=as_of.strftime("%m/%d"),
+        macro=macro.get_reading(), intl_news=intl, tw_news=tw,
+        tally=tally_watchlist(results),
+    )
+    print(digest)
+    if args.dry_run:
+        return 0
+    try:
+        LinePusher(token, "broadcast").push_text(digest)
+        logger.info("市場快訊已 broadcast 推播")
+    except LinePushError as exc:
+        logger.error("市場快訊推播失敗：%s", exc)
+        return 4
     return 0
 
 
@@ -122,7 +163,11 @@ def main(argv: list[str] | None = None) -> int:
         help="改跑個人化推播：每位訂閱者各自清單 → LINE push 逐人",
     )
     parser.add_argument("--subscribers", default="subscribers.json", help="訂閱者 JSON 檔（--per-user 用）")
-    parser.add_argument("--dry-run", action="store_true", help="--per-user 時只算不推")
+    parser.add_argument("--dry-run", action="store_true", help="--per-user / --market-digest 時只算不推")
+    parser.add_argument(
+        "--market-digest", action="store_true",
+        help="改推『國際情勢+台股』市場快訊 → broadcast 全體好友（同 mynews 主報告）",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -140,6 +185,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.per_user:
         return _run_per_user(orchestrator, args)
+
+    if args.market_digest:
+        return _run_market_digest(orchestrator, args)
 
     runner = PipelineRunner(
         orchestrator,
