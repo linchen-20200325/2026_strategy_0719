@@ -184,6 +184,96 @@ def format_bullish_digest(results: Sequence[CycleResult], *, title: str = "📈 
     return "\n".join(lines)
 
 
+# ── 個股盯盤卡（對齊使用者現有 LINE 盯盤 bot：技術＋籌碼一張卡）─────────────────
+# 五大行動 → 三態白話標籤（利多/中性/利空）;emoji + 中文並用（不靠顏色單獨表意）。
+_VERDICT_LABEL: dict[Action, str] = {
+    Action.STRONG_BUY: "🟢 利多",
+    Action.ADD: "🟢 利多",
+    Action.HOLD: "🟡 中性",
+    Action.REDUCE: "🔴 利空",
+    Action.STRONG_SELL: "🔴 利空",
+}
+
+
+def _fmt_price(v: float) -> str:
+    """價格顯示：四捨五入 2 位並去尾零（960.0→960、68.90→68.9）。"""
+    return f"{round(float(v), 2):g}"
+
+
+def _ma_seg(label: str, close: float, ma: float | None) -> str:
+    """均線段：站上/跌破 + 乖離%（ma 缺 / 0 → 顯示「—」,不捏造）。"""
+    if ma is None or ma == 0:
+        return f"{label} —"
+    pct = (close / ma - 1.0) * 100.0
+    status = "✅站上" if close >= ma else "❌跌破"
+    return f"{label}{status}({pct:+.1f}%)"
+
+
+def _lots(v: float | None) -> str:
+    """籌碼張數：帶正負號 + 千分位（None → 「—」;賣超保留負號）。"""
+    return "—" if v is None else f"{v:+,.0f}張"
+
+
+def _tech_line(t) -> str:
+    parts = [
+        f"收{_fmt_price(t.close)}",
+        _ma_seg("20MA", t.close, t.ma20),
+        _ma_seg("60MA", t.close, t.ma60),
+        (f"KD {t.kd_k:g}/{t.kd_d:g}" if t.kd_k is not None and t.kd_d is not None else "KD —"),
+        f"RSI {t.rsi:.0f}",
+    ]
+    return " | ".join(parts)
+
+
+def _chip_line(t) -> str:
+    if t.foreign_net_lots is None and t.trust_net_lots is None and t.total_net_lots is None:
+        return ""
+    return (
+        f"外資{_lots(t.foreign_net_lots)} | 投信{_lots(t.trust_net_lots)} | "
+        f"三大法人{_lots(t.total_net_lots)}"
+    )
+
+
+def format_stock_card(result: CycleResult) -> str:
+    """單一標的盯盤卡：【代號】判讀 → 📊 技術（收/20MA/60MA/KD/RSI）→ 💰 籌碼（外資/投信/三大法人）。
+
+    資料缺席一律誠實呈現（判讀 abstain → 「資料不足」;技術缺 → 「—」;籌碼全缺 → 略過該行）。
+    """
+    d = result.decision
+    if d.abstained or d.final_score is None:
+        head = f"【{d.tw_stock_id}】⬜ 資料不足"
+    else:
+        head = f"【{d.tw_stock_id}】{_VERDICT_LABEL[d.action]}　Final={d.final_score:.2f}"
+    lines = [head]
+
+    tech = result.packet.technical
+    if tech is None:
+        lines.append("📊 技術 —（stock.db 查無或缺值）")
+        return "\n".join(lines)
+
+    lines.append("📊 技術 " + _tech_line(tech))
+    chip = _chip_line(tech)
+    if chip:
+        lines.append("💰 籌碼 " + chip)
+    return "\n".join(lines)
+
+
+def format_watch_digest(
+    results: Sequence[CycleResult], *, day: str, title: str = "📈 個股盯盤"
+) -> str:
+    """全清單盯盤（對齊 LINE 盯盤 bot）：每檔一張卡（判讀＋技術＋籌碼），含指令頁尾。
+
+    與 `format_bullish_digest`（只推利多榜）不同：本函式**逐檔全列**，即使中性/利空也列出，
+    符合「每天固定收到自己清單狀態」的盯盤體驗。
+    """
+    head = f"{title} {day}"
+    if not results:
+        return f"{head}\n（清單為空）"
+    cards = [format_stock_card(r) for r in results]
+    footer = "（僅供參考，非投資建議。指令：加/刪/清單）"
+    return "\n\n".join([head, *cards, footer])
+
+
 def summarize(report: RunReport) -> str:
     """人可讀的一段摘要（供 log / stdout）。"""
     lines = [

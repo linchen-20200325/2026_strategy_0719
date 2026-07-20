@@ -165,9 +165,9 @@ class DataAggregationAgent:
     def _fetch_technical(
         self, tw_stock_id: str, warnings: list[str]
     ) -> TechnicalSnapshot | None:
+        # SELECT *：向後相容 —— 舊 stock.db 只有 6 欄,新版含均線/KD/籌碼;缺欄 → 該欄 None。
         sql = (
-            "SELECT date, stock_id, close, rsi, upper_band, lower_band "
-            f"FROM {self.stock_table} WHERE stock_id = ? "
+            f"SELECT * FROM {self.stock_table} WHERE stock_id = ? "
             "ORDER BY date DESC LIMIT 1"
         )
         with _connect_readonly(self.stock_db) as conn:
@@ -177,11 +177,23 @@ class DataAggregationAgent:
             return None
 
         row = df.iloc[0]
-        # NaN 防禦：關鍵欄位缺值 → 不可當 0，直接視為無資料並告警。
-        required = ["close", "rsi", "upper_band", "lower_band"]
-        if row[required].isna().any():
+        # 核心欄缺（schema 根本不符）→ Fail Loud;核心欄 NaN → 視為無資料並告警（不填 0）。
+        core = ["date", "stock_id", "close", "rsi", "upper_band", "lower_band"]
+        missing = [c for c in core if c not in df.columns]
+        if missing:
+            raise DataSourceError(
+                f"stock.db {self.stock_table} 缺核心欄 {missing}（schema 不符）"
+            )
+        if row[["close", "rsi", "upper_band", "lower_band"]].isna().any():
             warnings.append(f"stock.db {tw_stock_id} 最新列含 NaN，已跳過（不填 0）")
             return None
+
+        def _opt(col: str) -> float | None:
+            """盯盤卡加料欄（均線/KD/籌碼）：缺欄或 NaN → None（不捏造）。"""
+            if col not in df.columns:
+                return None
+            v = row[col]
+            return None if pd.isna(v) else float(v)
 
         return TechnicalSnapshot(
             stock_id=str(row["stock_id"]),
@@ -190,6 +202,13 @@ class DataAggregationAgent:
             rsi=float(row["rsi"]),
             upper_band=float(row["upper_band"]),
             lower_band=float(row["lower_band"]),
+            ma20=_opt("ma20"),
+            ma60=_opt("ma60"),
+            kd_k=_opt("kd_k"),
+            kd_d=_opt("kd_d"),
+            foreign_net_lots=_opt("foreign_net_lots"),
+            trust_net_lots=_opt("trust_net_lots"),
+            total_net_lots=_opt("total_net_lots"),
         )
 
     def _fetch_us_link(

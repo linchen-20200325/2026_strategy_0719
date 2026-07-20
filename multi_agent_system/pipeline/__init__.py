@@ -13,6 +13,8 @@ from .runner import (
     bullish_ranked,
     format_bullish_digest,
     format_run_digest,
+    format_stock_card,
+    format_watch_digest,
     summarize,
 )
 from .watchlist import (
@@ -38,5 +40,7 @@ __all__ = [
     "format_run_digest",
     "bullish_ranked",
     "format_bullish_digest",
+    "format_stock_card",
+    "format_watch_digest",
     "build_request",
 ]

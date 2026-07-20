@@ -49,7 +49,12 @@ ACTION_BULLISH_ORDER: tuple[Action, ...] = (
 
 @dataclass(frozen=True)
 class TechnicalSnapshot:
-    """個股最新一期技術面（來源：my-stock-dashboard / stock.db）。"""
+    """個股最新一期技術面（來源：my-stock-dashboard / stock.db）。
+
+    核心欄（close/rsi/布林軌）為必需；**盯盤卡加料欄**（均線/KD/籌碼）為選填，
+    對應舊版 stock.db（僅 6 欄）缺欄時 → None（顯示「—」，不捏造，§1 Fail Loud）。
+    單位鐵則：均線=元、KD=0~100 無單位、籌碼=張（賣超為負，禁止換算為金額混用）。
+    """
 
     stock_id: str
     as_of: str                 # 資料歸屬日 (YYYY-MM-DD)，非抓取日
@@ -57,6 +62,13 @@ class TechnicalSnapshot:
     rsi: float
     upper_band: float          # 布林上軌
     lower_band: float          # 布林下軌
+    ma20: float | None = None          # 20 日均線（元）
+    ma60: float | None = None          # 60 日均線（元）
+    kd_k: float | None = None          # KD 之 K（0~100 無單位）
+    kd_d: float | None = None          # KD 之 D（0~100 無單位）
+    foreign_net_lots: float | None = None   # 外資買賣超（張；賣超為負）
+    trust_net_lots: float | None = None     # 投信買賣超（張）
+    total_net_lots: float | None = None     # 三大法人買賣超（張＝外資＋投信＋自營）
     source: str = "stock.db"
     fetched_at: datetime = field(default_factory=utc_now)
 
