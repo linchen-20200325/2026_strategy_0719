@@ -116,6 +116,9 @@ DIGEST_SENTIMENT_BULLISH_MIN: float = 0.15   # >= → 偏多
 DIGEST_SENTIMENT_BEARISH_MAX: float = -0.15  # <= → 偏空（之間為中性）
 DIGEST_NEWS_TOP_N: int = 3                    # 摘要列出的頭條數上限
 
+# session 顯示標籤（runner 彙整 digest 與 market digest 共用 → SSOT，勿各自寫 map）。
+SESSION_LABELS: dict[str, str] = {"morning": "早盤前", "afternoon": "收盤後"}
+
 # =============================================================================
 # 6. 數值容差（浮點比較一律用容差，禁止 ==）
 # =============================================================================

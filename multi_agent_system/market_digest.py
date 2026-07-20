@@ -21,13 +21,12 @@ from config import (
     DIGEST_NEWS_TOP_N,
     DIGEST_SENTIMENT_BEARISH_MAX,
     DIGEST_SENTIMENT_BULLISH_MIN,
+    SESSION_LABELS,
     YIELD_INVERSION_PCT,
 )
 
 from .contracts import Action, MacroReading, NewsItem
 from .integration_agent import CycleResult
-
-_SESSION_LABEL = {"morning": "早盤前", "afternoon": "收盤後"}
 
 
 @dataclass(frozen=True)
@@ -110,7 +109,7 @@ def build_market_digest(
     tally: WatchTally,
 ) -> str:
     """組一則市場快訊（mynews 風格 emoji 分區）。day 為 'MM/DD' 或 ISO 前綴。"""
-    label = _SESSION_LABEL.get(session, session)
+    label = SESSION_LABELS.get(session, session)
     lines = [
         f"🌐 市場快訊｜{label} {day}",
         "━━ 國際情勢 ━━",
