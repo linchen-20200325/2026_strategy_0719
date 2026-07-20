@@ -103,3 +103,28 @@ def test_factory_explicit_local_beats_github_creds():
     env = {"SUBSCRIBERS_BACKEND": "local", "GITHUB_TOKEN": "t", "GITHUB_REPO": "o/r"}
     store = make_subscriber_store(get_env=env.get)
     assert isinstance(store, JsonSubscriberStore)   # 明示 local 蓋過 github 憑證
+
+
+# ---------------------------------------------------------------- GITHUB_TOKEN_FILE（同 mynews）
+def test_factory_github_token_from_file(tmp_path):
+    tok = tmp_path / "gh.token"
+    tok.write_text("github_pat_fromfile\n", encoding="utf-8")    # 尾端換行 → 應被 strip
+    env = {"GITHUB_TOKEN_FILE": str(tok), "GITHUB_REPO": "owner/repo"}
+    store = make_subscriber_store(get_env=env.get)
+    assert isinstance(store, GithubSubscriberStore)
+    assert store.token == "github_pat_fromfile"                  # 從檔案讀入 + strip
+    assert store_is_github(get_env=env.get)
+
+
+def test_factory_github_token_env_beats_file(tmp_path):
+    tok = tmp_path / "gh.token"
+    tok.write_text("from_file", encoding="utf-8")
+    env = {"GITHUB_TOKEN": "from_env", "GITHUB_TOKEN_FILE": str(tok), "GITHUB_REPO": "o/r"}
+    store = make_subscriber_store(get_env=env.get)
+    assert store.token == "from_env"                            # 環境變數優先於檔案
+
+
+def test_factory_github_token_file_unreadable_raises(tmp_path):
+    env = {"GITHUB_TOKEN_FILE": str(tmp_path / "nope.token"), "GITHUB_REPO": "o/r"}
+    with pytest.raises(SubscriberStoreError):                   # 檔案設了卻讀不到 → Fail-Loud
+        make_subscriber_store(get_env=env.get)
