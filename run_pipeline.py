@@ -86,11 +86,13 @@ def _run_per_user(orchestrator: WorkflowOrchestrator, args) -> int:
         return 4
 
     # backend 依環境變數自動選：設了 GITHUB_TOKEN + GITHUB_REPO → 讀 repo 內共享 JSON;否則本機檔。
+    # full_watch=True：推全清單盯盤卡（每檔判讀＋技術＋籌碼），對齊使用者現有 LINE 盯盤 bot。
     results = run_per_user_push(
         make_subscriber_store(local_path=args.subscribers),
         orchestrator,
         _build_macro_provider(),
         channel_access_token=token,
+        full_watch=True,
         dry_run=args.dry_run,
     )
     pushed = sum(1 for r in results if r.pushed)

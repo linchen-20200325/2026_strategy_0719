@@ -79,3 +79,34 @@ def test_to_json_dict_serializable(data_agent):
     # 應可被 json 序列化（datetime 已轉字串）
     json.dumps(js, ensure_ascii=False)
     assert js["tw_stock_id"] == "2330"
+
+
+def test_technical_reads_chip_kd_ma_columns(data_agent):
+    """新版 stock.db 富欄 → 均線/KD/籌碼(張,賣超保留負號)讀進 snapshot。"""
+    snap = data_agent.aggregate("2454", "AMD", ["半導體"], as_of_date=AS_OF).technical
+    assert snap is not None
+    assert snap.ma20 == pytest.approx(1298.0)      # 元
+    assert snap.ma60 == pytest.approx(1251.0)
+    assert snap.kd_k == pytest.approx(85.0) and snap.kd_d == pytest.approx(79.0)  # 0~100
+    assert snap.foreign_net_lots == pytest.approx(-8120.0)   # 張,賣超負號
+    assert snap.total_net_lots == pytest.approx(-9450.0)     # 三大法人
+
+
+def test_technical_old_6col_schema_optional_fields_none(demo_paths, tmp_path):
+    """舊版 stock.db（僅 6 欄）→ 加料欄誠實 None（向後相容,SELECT * 不炸）。"""
+    import sqlite3
+
+    sp = tmp_path / "old_stock.db"
+    with sqlite3.connect(str(sp)) as conn:
+        conn.execute(
+            "CREATE TABLE stock_technical (date TEXT, stock_id TEXT, close REAL, "
+            "rsi REAL, upper_band REAL, lower_band REAL)"
+        )
+        conn.execute(
+            "INSERT INTO stock_technical VALUES ('2026-07-18','2330',927.0,28.0,1004.0,924.0)"
+        )
+    agent = DataAggregationAgent(str(sp), demo_paths["fund_db"], demo_paths["news_db"])
+    snap = agent.aggregate("2330", "", [], as_of_date=AS_OF).technical
+    assert snap is not None and snap.close == pytest.approx(927.0)  # 核心欄照常
+    assert snap.ma20 is None and snap.kd_k is None                  # 加料欄 → None
+    assert snap.foreign_net_lots is None and snap.total_net_lots is None

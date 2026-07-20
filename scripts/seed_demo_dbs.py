@@ -5,7 +5,9 @@
 
 Schema（對齊使用者規格）
 ------------------------
-    stock_technical(date, stock_id, close, rsi, upper_band, lower_band)   # my-stock-dashboard
+    stock_technical(date, stock_id, close, rsi, upper_band, lower_band,   # my-stock-dashboard
+                    ma20, ma60, kd_k, kd_d,
+                    foreign_net_lots, trust_net_lots, total_net_lots)     # 均線/KD/籌碼(張)
     us_market(date, us_stock_id, close)                                   # my-Fund-dashboard
     news(date, title, content, sentiment_score)                          # mynews
 
@@ -23,15 +25,18 @@ import sqlite3
 # 2330：最新一期「超賣便宜」（RSI 低、收盤貼近下軌）→ 技術面偏多。
 # 2454：最新一期「超買昂貴」（RSI 高、收盤貼近上軌）→ 技術面偏空。
 _STOCK_ROWS = [
-    # (date, stock_id, close, rsi, upper_band, lower_band)
-    ("2026-07-14", "2330", 960.0, 45.0, 1010.0, 930.0),
-    ("2026-07-15", "2330", 945.0, 38.0, 1008.0, 928.0),
-    ("2026-07-16", "2330", 935.0, 33.0, 1006.0, 926.0),
-    ("2026-07-17", "2330", 928.0, 30.0, 1005.0, 925.0),
-    ("2026-07-18", "2330", 927.0, 28.0, 1004.0, 924.0),   # 最新：貼下軌、RSI 28 超賣
-    ("2026-07-16", "2454", 1300.0, 68.0, 1360.0, 1180.0),
-    ("2026-07-17", "2454", 1345.0, 72.0, 1365.0, 1185.0),
-    ("2026-07-18", "2454", 1358.0, 76.0, 1366.0, 1186.0),  # 最新：貼上軌、RSI 76 超買
+    # (date, stock_id, close, rsi, upper_band, lower_band,
+    #  ma20, ma60, kd_k, kd_d, foreign_net_lots, trust_net_lots, total_net_lots)  # 均線=元、籌碼=張
+    ("2026-07-14", "2330", 960.0, 45.0, 1010.0, 930.0, 972.0, 985.0, 55.0, 58.0, 3000.0, 200.0, 3500.0),
+    ("2026-07-15", "2330", 945.0, 38.0, 1008.0, 928.0, 968.0, 983.0, 42.0, 50.0, -1500.0, 300.0, -1000.0),
+    ("2026-07-16", "2330", 935.0, 33.0, 1006.0, 926.0, 962.0, 981.0, 33.0, 42.0, 8000.0, 400.0, 9200.0),
+    ("2026-07-17", "2330", 928.0, 30.0, 1005.0, 925.0, 958.0, 979.0, 27.0, 35.0, 10500.0, 450.0, 12300.0),
+    # 最新：貼下軌、RSI 28 超賣、外資買超（技術偏多）
+    ("2026-07-18", "2330", 927.0, 28.0, 1004.0, 924.0, 955.0, 977.0, 25.0, 31.0, 12480.0, 512.0, 15230.0),
+    ("2026-07-16", "2454", 1300.0, 68.0, 1360.0, 1180.0, 1275.0, 1240.0, 72.0, 68.0, -3000.0, -100.0, -3500.0),
+    ("2026-07-17", "2454", 1345.0, 72.0, 1365.0, 1185.0, 1288.0, 1246.0, 80.0, 74.0, -5500.0, -150.0, -6200.0),
+    # 最新：貼上軌、RSI 76 超買、外資賣超（技術偏空）
+    ("2026-07-18", "2454", 1358.0, 76.0, 1366.0, 1186.0, 1298.0, 1251.0, 85.0, 79.0, -8120.0, -230.0, -9450.0),
 ]
 
 _US_ROWS = [
@@ -58,10 +63,12 @@ def _create_stock_db(path: str) -> None:
         conn.execute(
             "CREATE TABLE stock_technical ("
             "date TEXT NOT NULL, stock_id TEXT NOT NULL, close REAL, "
-            "rsi REAL, upper_band REAL, lower_band REAL)"
+            "rsi REAL, upper_band REAL, lower_band REAL, "
+            "ma20 REAL, ma60 REAL, kd_k REAL, kd_d REAL, "
+            "foreign_net_lots REAL, trust_net_lots REAL, total_net_lots REAL)"
         )
         conn.executemany(
-            "INSERT INTO stock_technical VALUES (?,?,?,?,?,?)", _STOCK_ROWS
+            "INSERT INTO stock_technical VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", _STOCK_ROWS
         )
 
 

@@ -17,7 +17,12 @@ from typing import Protocol
 from .integration_agent import WorkflowOrchestrator
 from .line_push import LinePusher, LinePushError
 from .macro_providers import MacroDataProvider
-from .pipeline import build_request, bullish_ranked, format_bullish_digest
+from .pipeline import (
+    build_request,
+    bullish_ranked,
+    format_bullish_digest,
+    format_watch_digest,
+)
 from .pipeline.watchlist import WatchItem
 
 logger = logging.getLogger("multi_agent_system.multiuser")
@@ -47,11 +52,15 @@ def run_per_user_push(
     channel_access_token: str | None,
     as_of: date | None = None,
     only_bullish: bool = True,
+    full_watch: bool = False,
     dry_run: bool = False,
 ) -> list[UserPushResult]:
-    """對每位訂閱者跑其清單並 push 個人化利多。
+    """對每位訂閱者跑其清單並 push 個人化訊號。
 
-    only_bullish=True：某人無利多 → 不推（避免洗版）。dry_run=True：只算不推。
+    full_watch=True：推**全清單盯盤卡**（每檔判讀＋技術＋籌碼，對齊 LINE 盯盤 bot），
+        即使無利多也推（每日固定收自己清單狀態）。此模式下 only_bullish 被忽略。
+    full_watch=False（預設）：只推利多榜；only_bullish=True 時某人無利多 → 不推（避免洗版）。
+    dry_run=True：只算不推。
     """
     if not dry_run and not channel_access_token:
         raise LinePushError("缺 LINE_CHANNEL_ACCESS_TOKEN,無法 push")
@@ -68,11 +77,13 @@ def run_per_user_push(
         )
         ranked = bullish_ranked(cycles)
 
-        if only_bullish and not ranked:
-            results.append(UserPushResult(uid, len(items), 0, False))
-            continue
-
-        digest = format_bullish_digest(cycles)
+        if full_watch:
+            digest = format_watch_digest(cycles, day=(as_of or date.today()).isoformat())
+        else:
+            if only_bullish and not ranked:
+                results.append(UserPushResult(uid, len(items), 0, False))
+                continue
+            digest = format_bullish_digest(cycles)
         if dry_run:
             logger.info("[dry-run] %s → %d 利多\n%s", uid, len(ranked), digest)
             results.append(UserPushResult(uid, len(items), len(ranked), False))

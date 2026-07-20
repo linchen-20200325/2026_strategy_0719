@@ -108,6 +108,21 @@ def test_only_bullish_false_pushes_everyone(demo_paths, captured_push):
     assert captured_push[0][0] == "U2"
 
 
+def test_full_watch_pushes_all_with_cards(demo_paths, captured_push):
+    # full_watch=True → 全清單盯盤：追 9999(查無→abstain) 的人也收到（誠實顯示資料不足），
+    # 卡片含技術/籌碼欄位與盯盤頁尾（對齊 LINE 盯盤 bot 體驗）。
+    store = _MemStore({"U1": [_item("2330", "NVDA")], "U2": [_item("9999")]})
+    run_per_user_push(
+        store, _orch(demo_paths), _macro(),
+        channel_access_token="TOKEN", as_of=AS_OF, full_watch=True,
+    )
+    sent = {to: text for to, text in captured_push}
+    assert set(sent) == {"U1", "U2"}                   # 兩人都推（含 abstain 的 U2）
+    assert "個股盯盤" in sent["U1"] and "指令" in sent["U1"]
+    assert "📊 技術" in sent["U1"] and "💰 籌碼" in sent["U1"]
+    assert "9999" in sent["U2"] and "資料不足" in sent["U2"]   # 查無 → 誠實不捏造
+
+
 def test_empty_watchlist_user_not_pushed(demo_paths, captured_push):
     store = _MemStore({"U3": []})
     results = run_per_user_push(
