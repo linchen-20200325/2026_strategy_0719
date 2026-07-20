@@ -19,17 +19,39 @@
 # 週一至週五(1-5)才跑;台股週末休市。
 # -----------------------------------------------------------------------------
 
-# 環境變數(三個 DB 路徑;可選:注入真實總經值 + LINE 推播)
+# 環境變數(三個 DB 路徑;可選:注入真實總經值 + LINE 推播 + 清單共享)
 STOCK_DB=/volume1/data/stock.db
 FUND_DB=/volume1/data/fund.db
 NEWS_DB=/volume1/data/news.db
+# FINMIND_TOKEN=xxxxx                  # STEP 1 my-stock export 的 live 表(技術/籌碼/月營收)才需;離線層免
 # MACRO_SPREAD_PCT=0.85
 # MACRO_CPI_YOY_PCT=3.10
 # LINE_CHANNEL_ACCESS_TOKEN=xxxxx     # 設了才會實際推 LINE
 # LINE_TO=Uxxxxxxxx                    # 推播對象 userId / groupId
+# GITHUB_TOKEN=github_pat_xxx          # 清單共享(webhook 寫 / cron 讀 同一份;見 shared_watchlist.md)
+# GITHUB_REPO=linchen-20200325/2026_strategy_0719
 
 # =============================================================================
-# 推播（mynews 風格分工）:①市場快訊 broadcast 全體 + ②個股利多 per-user 逐人。
+# STEP 1｜三個源專案各自 export → 寫進上面共享 DB 路徑（**必須排在 pipeline 之前**）
+# =============================================================================
+# 「各源專案各自 export」架構:抓取/評分留在各自 repo,2026 只讀三庫判讀。
+# 時序鐵則(對照憲法 §2.3):export 先跑完、pipeline 再判讀,中間留 ~30-40 分緩衝。
+#   盤前 06:50 export → 07:30 pipeline;收盤後 16:00 export → 16:30 pipeline。
+#   ★ stock.db 收盤後若較晚更新(如 my-stock update_macro_history 17:00 TW),把「收盤後」整組往後移。
+# 路徑改成你 NAS 上三個 repo 的實際位置;export 讀上面的 STOCK_DB/FUND_DB/NEWS_DB 環境變數。
+# my-stock 的技術/籌碼/月營收 live 表需 FINMIND_TOKEN(上面設);離線層(財報/指數/法人)免 key。
+
+# 盤前 06:50（給 07:30 pipeline 用）
+50 6 * * 1-5  cd /path/to/mynews             && /usr/bin/python3 export_news_db.py          >> /path/to/2026_strategy_0719/logs/export.log 2>&1
+50 6 * * 1-5  cd /path/to/my-stock-dashboard && /usr/bin/python3 scripts/export_stock_db.py >> /path/to/2026_strategy_0719/logs/export.log 2>&1
+50 6 * * 1-5  cd /path/to/my-Fund-dashboard  && /usr/bin/python3 scripts/export_fund_db.py  >> /path/to/2026_strategy_0719/logs/export.log 2>&1
+# 收盤後 16:00（給 16:30 pipeline 用;stock.db 較晚更新則往後移）
+0 16 * * 1-5  cd /path/to/mynews             && /usr/bin/python3 export_news_db.py          >> /path/to/2026_strategy_0719/logs/export.log 2>&1
+0 16 * * 1-5  cd /path/to/my-stock-dashboard && /usr/bin/python3 scripts/export_stock_db.py >> /path/to/2026_strategy_0719/logs/export.log 2>&1
+0 16 * * 1-5  cd /path/to/my-Fund-dashboard  && /usr/bin/python3 scripts/export_fund_db.py  >> /path/to/2026_strategy_0719/logs/export.log 2>&1
+
+# =============================================================================
+# STEP 2｜推播（mynews 風格分工）:①市場快訊 broadcast 全體 + ②個股盯盤 per-user 逐人。
 # 兩者內容不同、不重複,可同時跑。國際情勢要真值 → 取消上面 MACRO_* 兩行的註解(從 my-stock 帶入)。
 # =============================================================================
 
@@ -37,7 +59,7 @@ NEWS_DB=/volume1/data/news.db
 30 7 * * 1-5  cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session morning   --market-digest >> logs/pipeline.log 2>&1
 30 16 * * 1-5 cd /path/to/2026_strategy_0719 && /usr/bin/python3 run_pipeline.py --session afternoon --market-digest >> logs/pipeline.log 2>&1
 
-# ── ② 個股利多 → per-user 逐人(每位訂閱者各自清單;免 LINE_TO,對象取自清單)──────
+# ── ② 個股盯盤 → per-user 逐人(每位訂閱者各自清單全列:判讀＋技術＋籌碼一張卡;免 LINE_TO)──
 # 前提:subscribers.json 由 scripts/nas_line_bot.py(webhook)維護,--subscribers 路徑要與
 #       webhook 的 SUBSCRIBERS_FILE 一致(見 deploy/nas_line_bot.md / shared_watchlist.md)。
 #       先 dry-run 驗:  python3 run_pipeline.py --session afternoon --per-user --dry-run
