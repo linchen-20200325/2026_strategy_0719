@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date, datetime, timezone
 
 from config import SESSION_LABELS
 
@@ -131,7 +131,7 @@ class PipelineRunner:
                 if should_notify(r.decision):
                     self.notifier.notify(r.decision)
 
-        ran_at = datetime.now(UTC).isoformat()
+        ran_at = datetime.now(timezone.utc).isoformat()
         report = RunReport(session=session, ran_at=ran_at, freshness=fresh, results=results)
         n_act = len(report.actionable())
         logger.info(
