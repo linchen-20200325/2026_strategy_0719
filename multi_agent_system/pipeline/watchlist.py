@@ -11,12 +11,17 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-
-import pandas as pd
+from typing import TYPE_CHECKING
 
 from config import DEFAULT_MAX_WEIGHT_RATIO, DEFAULT_WEIGHT_RATIO
 
 from ..contracts import PortfolioState
+
+# pandas 只在下方兩個 UI 編輯表 helper 用到，故**惰性 import**（放函式內）——
+# 讓「只要 WatchItem」的輕量 caller（NAS webhook bot）不必安裝 pandas（NAS 零安裝部署）。
+# 型別註解需要 pd 這個名字,故僅在 TYPE_CHECKING 期 import（runtime 不載入）。
+if TYPE_CHECKING:
+    import pandas as pd
 
 # UI 編輯表欄位（st.data_editor 用;為顯示標籤,轉換邏輯集中在本檔）
 DF_COLUMNS = ["類別", "代號", "連動美股/基金", "新聞關鍵字", "權重", "Sharpe"]
@@ -59,6 +64,8 @@ def load_db_paths(*, allow_demo: bool = False) -> dict[str, str]:
 
 def watchlist_to_df(items: list[WatchItem] | tuple[WatchItem, ...]) -> pd.DataFrame:
     """WatchItem 清單 → 編輯表 DataFrame（供 st.data_editor）。"""
+    import pandas as pd
+
     return pd.DataFrame(
         [
             {
@@ -77,6 +84,8 @@ def watchlist_to_df(items: list[WatchItem] | tuple[WatchItem, ...]) -> pd.DataFr
 
 def watchlist_from_df(df: pd.DataFrame) -> list[WatchItem]:
     """編輯表 DataFrame → WatchItem 清單。空代號列略過;缺值套用安全預設（不炸）。"""
+    import pandas as pd
+
     items: list[WatchItem] = []
     for _, row in df.iterrows():
         code = str(row.get("代號", "") or "").strip()
