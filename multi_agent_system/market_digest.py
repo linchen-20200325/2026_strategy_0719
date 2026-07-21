@@ -158,7 +158,6 @@ def build_market_digest(
     tally: WatchTally,
     tw_macro: TwMacroReading | None = None,
     night: TwNightReading | None = None,
-    ai_read: str | None = None,
 ) -> str:
     """組一則市場快訊（mynews 風格 emoji 分區）。day 為 'MM/DD' 或 ISO 前綴。
 
@@ -185,7 +184,4 @@ def build_market_digest(
     if tally.bullish_names:
         lines.append(f"📈 利多：{'、'.join(tally.bullish_names)}")
     lines += _news_block("📰 台股新聞情緒", tw_news)
-    # §3b AI 解讀（Gemini 讀上述數據 → 綜合敘事）；缺 key / 失敗 → 不顯示（不杜撰）。
-    if ai_read:
-        lines += ["━━ 🧠 AI 解讀 ━━", ai_read]
     return "\n".join(lines)

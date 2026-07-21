@@ -14,8 +14,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Protocol
 
-from .ai_summary import summarize_stock_news
-from .integration_agent import CycleResult, WorkflowOrchestrator
+from .integration_agent import WorkflowOrchestrator
 from .line_push import LinePusher, LinePushError
 from .macro_providers import MacroDataProvider
 from .pipeline import (
@@ -27,22 +26,6 @@ from .pipeline import (
 from .pipeline.watchlist import WatchItem
 
 logger = logging.getLogger("multi_agent_system.multiuser")
-
-
-def _news_summaries(cycles: list[CycleResult]) -> dict[str, str]:
-    """對有新聞的標的產 AI 總結 {stock_id: 總結}。無 GEMINI_API_KEY → 全 None → 回空 dict。
-
-    （空 dict 時盯盤卡自動退回頭條標題，不杜撰。）
-    """
-    out: dict[str, str] = {}
-    for c in cycles:
-        news = c.packet.news
-        if not news:
-            continue
-        summary = summarize_stock_news(c.decision.tw_stock_id, news)
-        if summary:
-            out[c.decision.tw_stock_id] = summary
-    return out
 
 
 class _Store(Protocol):
@@ -98,7 +81,6 @@ def run_per_user_push(
             digest = format_watch_digest(
                 cycles,
                 day=(as_of or date.today()).isoformat(),
-                news_summaries=_news_summaries(cycles),
             )
         else:
             if only_bullish and not ranked:
