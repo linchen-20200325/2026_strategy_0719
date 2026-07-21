@@ -72,8 +72,31 @@ def test_set_get_roundtrip(store):
     store.set("U1", [_item("2330"), _item("2454")])
     assert store.user_ids() == ["U1"]
     assert [g.tw_stock_id for g in store.get("U1")] == ["2330", "2454"]
-    # 底層確實寫成 {userId: [item dict]}，且中文關鍵字保留
-    assert store._fake.blob["U1"][0]["keywords"] == ["台積電", "半導體"]
+    # 底層寫成 {"users": {userId: [item dict]}, "allow": [...]}，且中文關鍵字保留
+    assert store._fake.blob["users"]["U1"][0]["keywords"] == ["台積電", "半導體"]
+    assert "allow" in store._fake.blob
+
+
+def test_allow_grant_revoke_in_same_json(store):
+    ok, msg = store.grant("Ufriendxxxx", "小明")
+    assert ok and "已授權" in msg
+    assert store.allow_ids() == {"Ufriendxxxx"}
+    # 授權寫在同一份 JSON 的 allow 欄位（與 users 並存）
+    assert store._fake.blob["allow"][0]["name"] == "小明"
+    assert store.grant("Ufriendxxxx")[0] is False   # 重複 → 不變更
+    assert store.revoke("Ufriendxxxx")[0] is True
+    assert store.allow_ids() == set()
+
+
+def test_migrates_legacy_flat_schema(store):
+    # 舊格式（頂層即 {userId:[items]}，無 users/allow）→ 讀取自動遷移
+    store._fake.blob = {"U9": [{"tw_stock_id": "2330", "keywords": ["台積電"]}]}
+    store._fake.sha = "sha0"
+    assert store.user_ids() == ["U9"]
+    assert [g.tw_stock_id for g in store.get("U9")] == ["2330"]
+    # 一旦寫入即升級為新格式（users + allow 並存）
+    store.add_item("U9", _item("2454"))
+    assert "users" in store._fake.blob and "allow" in store._fake.blob
 
 
 def test_add_item_dedup(store):

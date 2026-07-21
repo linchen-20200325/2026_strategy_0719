@@ -1,12 +1,22 @@
-"""subscribers.py — 每位 LINE 使用者的追蹤清單儲存（userId → WatchItem 清單）。
+"""subscribers.py — 共用 watchlist.json：每位 LINE 使用者的追蹤清單 + 授權名單。
 
-用途：個人化推播 —— 每個 user 各自選標的，收自己的訊號（走 LINE push 逐人）。
+單一真相源（對齊使用者 spec）
+------------------------------
+一份 JSON 同時存兩件事，webhook（即時改）與排程 push（隔天讀）共用：
 
-儲存：先用 JSON 檔（原子寫入）;`SubscriberStore` 為介面,之後可換 Google Sheet / DB
-而不動上層邏輯。**入站收集**（好友傳訊選標的的 LINE webhook / LIFF）屬另一支服務,
-本檔只負責「存 + 取」,可由 webhook / CLI / Sheet 任一來源寫入。
+    {
+      "users": { "<userId>": [ <WatchItem dict>, ... ], ... },   # 每人各自清單
+      "allow": [ { "id": "<userId>", "name": "..." }, ... ]        # 管理員授權名單
+    }
 
-Fail-Loud：檔案損毀 / 格式錯誤 → raise,不靜默吞。
+`SubscriberStore` 為介面，兩種後端同介面（上層不需知道存哪）：
+* `JsonSubscriberStore`   — 本機檔（NAS webhook 單機常駐用），原子寫入。
+* `GithubSubscriberStore` — GitHub repo 內 JSON（Contents API），雲端 dashboard / NAS / cron 共用。
+
+向後相容：舊格式（頂層直接是 `{userId: [items]}`，無 users/allow 包一層）→ 讀取時
+自動遷移為新格式（包進 users、allow 補空），寫回即升級，不需手動改檔。
+
+Fail-Loud：檔案損毀 / 格式錯誤 → raise，不靜默吞。
 """
 
 from __future__ import annotations
@@ -51,69 +61,136 @@ def item_from_dict(d: dict) -> WatchItem:
     )
 
 
+# ── 文件正規化 / 遷移（舊 {userId:[...]} → {"users":{...},"allow":[]}）──────────
+def normalize_doc(raw: object) -> dict:
+    """任意載入結果 → 標準 `{"users": {...}, "allow": [...]}`。
+
+    新格式（含 dict 型別的 "users" 鍵）原樣採用；否則視為舊「頂層即 users」格式並包一層。
+    """
+    if not isinstance(raw, dict):
+        raise SubscriberStoreError("watchlist JSON 格式錯誤（非物件）")
+    if isinstance(raw.get("users"), dict):
+        users = raw["users"]
+        allow = raw.get("allow")
+    else:
+        users = raw          # 舊格式：頂層直接是 {userId: [items]}
+        allow = None
+    if not isinstance(users, dict):
+        raise SubscriberStoreError("watchlist JSON 的 users 非物件")
+    return {"users": users, "allow": allow if isinstance(allow, list) else []}
+
+
+# ── 授權名單純邏輯（SSOT：Json / Github 兩後端 + webhook 共用；可單測）─────────
+def valid_user_id(uid: str) -> bool:
+    """LINE userId：U 開頭 + 至少 10 碼（U + 32 hex 實務；放寬為 >=10 容錯）。"""
+    return bool(uid) and uid.startswith("U") and len(uid) >= 10
+
+
+def allow_ids_of(allow: list[dict]) -> set[str]:
+    return {str(a.get("id")) for a in allow if a.get("id")}
+
+
+def apply_grant(allow: list[dict], uid: str, name: str = "") -> tuple[bool, str]:
+    """就地新增授權；回 (是否有變更, 給使用者的訊息)。不合法 / 重複 → 不變更。"""
+    uid = (uid or "").strip()
+    if not valid_user_id(uid):
+        return False, f"看不懂 userId「{uid}」，請貼完整的 U 開頭那串。"
+    for a in allow:
+        if str(a.get("id")) == uid:
+            return False, f"{(a.get('name') or uid[:8] + '…')} 已在授權名單內。"
+    allow.append({"id": uid, "name": (name or "").strip()})
+    who = (name.strip() + " ") if name.strip() else ""
+    return True, f"✅ 已授權 {who}{uid[:8]}…"
+
+
+def apply_revoke(allow: list[dict], uid: str) -> tuple[bool, str]:
+    """就地移除授權；回 (是否有變更, 訊息)。"""
+    uid = (uid or "").strip()
+    before = len(allow)
+    allow[:] = [a for a in allow if str(a.get("id")) != uid]
+    if len(allow) == before:
+        return False, f"{uid[:8]}… 不在授權名單內。"
+    return True, f"🗑️ 已撤銷 {uid[:8]}…"
+
+
+def format_allow_list(allow: list[dict]) -> str:
+    if not allow:
+        return "授權名單目前是空的（此時以環境變數 STRATEGY_ALLOW_USER 為準）。"
+    lines = [f"🔑 授權名單（{len(allow)} 人）："]
+    for a in allow:
+        nm = (a.get("name") or "").strip()
+        lines.append(f"・{(nm + '  ') if nm else ''}{a.get('id', '')}")
+    lines.append("")
+    lines.append("指令：授權 <userId> [名字] / 撤銷 <userId> / 名單")
+    return "\n".join(lines)
+
+
 class SubscriberStore(Protocol):
+    # 每人清單
     def user_ids(self) -> list[str]: ...
     def get(self, user_id: str) -> list[WatchItem]: ...
     def set(self, user_id: str, items: list[WatchItem]) -> None: ...
     def add_item(self, user_id: str, item: WatchItem) -> None: ...
     def remove_item(self, user_id: str, tw_stock_id: str) -> bool: ...
     def remove_user(self, user_id: str) -> None: ...
+    # 授權名單（存同一份 JSON 的 allow 欄位）
+    def allow_ids(self) -> set[str]: ...
+    def grant(self, user_id: str, name: str = "") -> tuple[bool, str]: ...
+    def revoke(self, user_id: str) -> tuple[bool, str]: ...
+    def allow_text(self) -> str: ...
 
 
 class JsonSubscriberStore:
-    """以單一 JSON 檔儲存 {userId: [item, ...]}。原子寫入,壞檔即 raise。"""
+    """以單一 JSON 檔儲存 `{"users":{...},"allow":[...]}`。原子寫入，壞檔即 raise。"""
 
     def __init__(self, path: str) -> None:
         self.path = path
 
-    def _load(self) -> dict[str, list[dict]]:
+    def _load(self) -> dict:
         if not os.path.exists(self.path):
-            return {}
+            return {"users": {}, "allow": []}
         try:
             with open(self.path, encoding="utf-8") as fh:
                 data = json.load(fh)
         except (OSError, json.JSONDecodeError) as exc:
             raise SubscriberStoreError(f"讀取訂閱檔失敗 {self.path}：{exc}") from exc
-        if not isinstance(data, dict):
-            raise SubscriberStoreError(f"訂閱檔格式錯誤（非物件）：{self.path}")
-        return data
+        return normalize_doc(data)
 
-    def _save(self, data: dict) -> None:
-        # 原子寫入：先寫暫存再 replace,避免半寫壞檔。
+    def _save(self, doc: dict) -> None:
+        # 原子寫入：先寫暫存再 replace，避免半寫壞檔。
         parent = os.path.dirname(os.path.abspath(self.path))
         os.makedirs(parent, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=parent, suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                json.dump(data, fh, ensure_ascii=False, indent=2)
+                json.dump(doc, fh, ensure_ascii=False, indent=2)
             os.replace(tmp, self.path)
         except BaseException:
             if os.path.exists(tmp):
                 os.remove(tmp)
             raise
 
+    # 每人清單 ---------------------------------------------------------------
     def user_ids(self) -> list[str]:
-        return list(self._load().keys())
+        return list(self._load()["users"].keys())
 
     def get(self, user_id: str) -> list[WatchItem]:
-        return [item_from_dict(d) for d in self._load().get(user_id, [])]
+        return [item_from_dict(d) for d in self._load()["users"].get(user_id, [])]
 
     def set(self, user_id: str, items: list[WatchItem]) -> None:
         if not user_id:
             raise ValueError("user_id 不可為空")
-        data = self._load()
-        data[user_id] = [item_to_dict(it) for it in items]
-        self._save(data)
+        doc = self._load()
+        doc["users"][user_id] = [item_to_dict(it) for it in items]
+        self._save(doc)
 
     def add_item(self, user_id: str, item: WatchItem) -> None:
         items = self.get(user_id)
-        # 同代號視為更新（去重）
-        items = [it for it in items if it.tw_stock_id != item.tw_stock_id]
+        items = [it for it in items if it.tw_stock_id != item.tw_stock_id]  # 同代號視為更新
         items.append(item)
         self.set(user_id, items)
 
     def remove_item(self, user_id: str, tw_stock_id: str) -> bool:
-        """移除某 user 的一檔;回傳是否有移除。清單清空仍保留該 user（可再加）。"""
         items = self.get(user_id)
         kept = [it for it in items if it.tw_stock_id != tw_stock_id]
         if len(kept) == len(items):
@@ -122,9 +199,30 @@ class JsonSubscriberStore:
         return True
 
     def remove_user(self, user_id: str) -> None:
-        data = self._load()
-        if data.pop(user_id, None) is not None:
-            self._save(data)
+        doc = self._load()
+        if doc["users"].pop(user_id, None) is not None:
+            self._save(doc)
+
+    # 授權名單 ---------------------------------------------------------------
+    def allow_ids(self) -> set[str]:
+        return allow_ids_of(self._load()["allow"])
+
+    def grant(self, user_id: str, name: str = "") -> tuple[bool, str]:
+        doc = self._load()
+        changed, msg = apply_grant(doc["allow"], user_id, name)
+        if changed:
+            self._save(doc)
+        return changed, msg
+
+    def revoke(self, user_id: str) -> tuple[bool, str]:
+        doc = self._load()
+        changed, msg = apply_revoke(doc["allow"], user_id)
+        if changed:
+            self._save(doc)
+        return changed, msg
+
+    def allow_text(self) -> str:
+        return format_allow_list(self._load()["allow"])
 
 
 def _resolve_github_token(env) -> str | None:

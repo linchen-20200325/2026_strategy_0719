@@ -1,15 +1,15 @@
-"""github_store.py — 把訂閱清單存在 GitHub repo 的 JSON（真·同 mynews 的 gh_load/gh_save）。
+"""github_store.py — 共用 watchlist.json 存在 GitHub repo（Contents API 讀寫）。
 
-用途：雲端 dashboard / NAS webhook / cron 共用**同一份** subscribers.json —— 存在 repo 裡,
-誰改都看得到（GitHub Contents API 讀寫）。實作與 `JsonSubscriberStore` 相同的 `SubscriberStore`
-介面（見 subscribers.py），故上層（dashboard / run_pipeline --per-user / CLI）不需知道 backend。
+用途：雲端 dashboard / NAS webhook / cron 共用**同一份** JSON —— 存在 repo 裡，誰改都看得到。
+存的是 `{"users":{userId:[items]}, "allow":[{id,name}]}`（同 subscribers.JsonSubscriberStore），
+故上層（dashboard / run_pipeline --per-user / webhook bot）不需知道 backend，兩者可互換。
 
 零新相依：只用標準庫 urllib（同 mynews nas_line_bot.py）+ 既有 GITHUB_TOKEN。
 
 Fail-Loud：缺 token / API 非 2xx / 格式錯 → raise SubscriberStoreError（不靜默）。
-404（repo 尚無此檔）→ 視為空清單（首次寫入時建立）。寫入用 sha 樂觀鎖，衝突即 raise。
+404（repo 尚無此檔）→ 視為空。寫入用 sha 樂觀鎖，衝突即 raise。
 
-⚠️ 隱私：userId 會寫進 repo 的 JSON（同 mynews watchlist.json）——僅適用**私有 repo**。
+⚠️ 隱私：userId 會寫進 repo 的 JSON —— 僅適用**私有 repo**。
 """
 
 from __future__ import annotations
@@ -20,13 +20,22 @@ import urllib.error
 import urllib.request
 
 from .pipeline.watchlist import WatchItem
-from .subscribers import SubscriberStoreError, item_from_dict, item_to_dict
+from .subscribers import (
+    SubscriberStoreError,
+    allow_ids_of,
+    apply_grant,
+    apply_revoke,
+    format_allow_list,
+    item_from_dict,
+    item_to_dict,
+    normalize_doc,
+)
 
 _GITHUB_API = "https://api.github.com"
 
 
 class GithubSubscriberStore:
-    """以 GitHub repo 內單一 JSON 檔儲存 {userId: [item, ...]}。讀寫走 Contents API。"""
+    """以 GitHub repo 內單一 JSON 檔儲存 `{"users":{...},"allow":[...]}`。讀寫走 Contents API。"""
 
     def __init__(
         self,
@@ -69,12 +78,12 @@ class GithubSubscriberStore:
         except urllib.error.URLError as exc:
             raise SubscriberStoreError(f"GitHub API 連線失敗：{exc.reason}") from exc
 
-    # ── 讀取：回 (data, sha)。404 → ({}, None)。───────────────────────────────
-    def _load(self) -> tuple[dict[str, list[dict]], str | None]:
+    # ── 讀取：回 (doc, sha)。404 → (空 doc, None)。doc = {"users":..,"allow":..} ──
+    def _load(self) -> tuple[dict, str | None]:
         url = f"{_GITHUB_API}/repos/{self.repo}/contents/{self.path}?ref={self.branch}"
         status, raw = self._request("GET", url)
         if status == 404:
-            return {}, None
+            return {"users": {}, "allow": []}, None
         if status // 100 != 2:
             raise SubscriberStoreError(
                 f"讀 {self.path} 失敗 HTTP {status}：{raw.decode('utf-8', 'replace')[:300]}"
@@ -82,14 +91,13 @@ class GithubSubscriberStore:
         payload = json.loads(raw)
         content = base64.b64decode(payload.get("content", "")).decode("utf-8")
         data = json.loads(content) if content.strip() else {}
-        if not isinstance(data, dict):
-            raise SubscriberStoreError(f"{self.path} 格式錯誤（非物件）")
-        return data, payload.get("sha")
+        doc = normalize_doc(data) if data else {"users": {}, "allow": []}
+        return doc, payload.get("sha")
 
     # ── 寫入：PUT 全檔（帶 sha 樂觀鎖）。────────────────────────────────────────
-    def _save(self, data: dict, sha: str | None, message: str) -> None:
+    def _save(self, doc: dict, sha: str | None, message: str) -> None:
         url = f"{_GITHUB_API}/repos/{self.repo}/contents/{self.path}"
-        content = json.dumps(data, ensure_ascii=False, indent=2)
+        content = json.dumps(doc, ensure_ascii=False, indent=2)
         body: dict = {
             "message": message,
             "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
@@ -103,42 +111,63 @@ class GithubSubscriberStore:
                 f"寫 {self.path} 失敗 HTTP {status}：{raw.decode('utf-8', 'replace')[:300]}"
             )
 
-    # ── SubscriberStore 介面 ──────────────────────────────────────────────────
+    # ── 每人清單 ──────────────────────────────────────────────────────────────
     def user_ids(self) -> list[str]:
-        return list(self._load()[0].keys())
+        return list(self._load()[0]["users"].keys())
 
     def get(self, user_id: str) -> list[WatchItem]:
-        data, _ = self._load()
-        return [item_from_dict(d) for d in data.get(user_id, [])]
+        doc, _ = self._load()
+        return [item_from_dict(d) for d in doc["users"].get(user_id, [])]
 
     def set(self, user_id: str, items: list[WatchItem]) -> None:
         if not user_id:
             raise ValueError("user_id 不可為空")
-        data, sha = self._load()
-        data[user_id] = [item_to_dict(it) for it in items]
-        self._save(data, sha, f"subscribers: set {user_id} ({len(items)} 檔)")
+        doc, sha = self._load()
+        doc["users"][user_id] = [item_to_dict(it) for it in items]
+        self._save(doc, sha, f"watchlist: set {user_id} ({len(items)} 檔)")
 
     def add_item(self, user_id: str, item: WatchItem) -> None:
         if not user_id:
             raise ValueError("user_id 不可為空")
-        data, sha = self._load()
-        cur = [item_from_dict(d) for d in data.get(user_id, [])]
+        doc, sha = self._load()
+        cur = [item_from_dict(d) for d in doc["users"].get(user_id, [])]
         cur = [it for it in cur if it.tw_stock_id != item.tw_stock_id]  # 同代號視為更新
         cur.append(item)
-        data[user_id] = [item_to_dict(it) for it in cur]
-        self._save(data, sha, f"subscribers: add {item.tw_stock_id} for {user_id}")
+        doc["users"][user_id] = [item_to_dict(it) for it in cur]
+        self._save(doc, sha, f"watchlist: add {item.tw_stock_id} for {user_id}")
 
     def remove_item(self, user_id: str, tw_stock_id: str) -> bool:
-        data, sha = self._load()
-        cur = data.get(user_id, [])
+        doc, sha = self._load()
+        cur = doc["users"].get(user_id, [])
         kept = [d for d in cur if str(d.get("tw_stock_id")) != tw_stock_id]
         if len(kept) == len(cur):
             return False
-        data[user_id] = kept
-        self._save(data, sha, f"subscribers: remove {tw_stock_id} for {user_id}")
+        doc["users"][user_id] = kept
+        self._save(doc, sha, f"watchlist: remove {tw_stock_id} for {user_id}")
         return True
 
     def remove_user(self, user_id: str) -> None:
-        data, sha = self._load()
-        if data.pop(user_id, None) is not None:
-            self._save(data, sha, f"subscribers: remove user {user_id}")
+        doc, sha = self._load()
+        if doc["users"].pop(user_id, None) is not None:
+            self._save(doc, sha, f"watchlist: remove user {user_id}")
+
+    # ── 授權名單（同一份 JSON 的 allow 欄位）─────────────────────────────────────
+    def allow_ids(self) -> set[str]:
+        return allow_ids_of(self._load()[0]["allow"])
+
+    def grant(self, user_id: str, name: str = "") -> tuple[bool, str]:
+        doc, sha = self._load()
+        changed, msg = apply_grant(doc["allow"], user_id, name)
+        if changed:
+            self._save(doc, sha, f"watchlist: grant {user_id}")
+        return changed, msg
+
+    def revoke(self, user_id: str) -> tuple[bool, str]:
+        doc, sha = self._load()
+        changed, msg = apply_revoke(doc["allow"], user_id)
+        if changed:
+            self._save(doc, sha, f"watchlist: revoke {user_id}")
+        return changed, msg
+
+    def allow_text(self) -> str:
+        return format_allow_list(self._load()[0]["allow"])

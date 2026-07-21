@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from multi_agent_system.github_store import GithubSubscriberStore
@@ -12,6 +14,7 @@ from multi_agent_system.subscribers import (
     item_from_dict,
     item_to_dict,
     make_subscriber_store,
+    normalize_doc,
     store_is_github,
 )
 
@@ -76,6 +79,47 @@ def test_store_non_object_raises(tmp_path):
     store = JsonSubscriberStore(str(path))
     with pytest.raises(SubscriberStoreError):
         store.user_ids()
+
+
+# ---------------------------------------------------------------- 授權名單（同一份 JSON）
+def test_allow_grant_revoke_and_ids(tmp_path):
+    store = JsonSubscriberStore(str(tmp_path / "w.json"))
+    assert store.allow_ids() == set()
+    ok, msg = store.grant("Ufriendxxxx", "小明")
+    assert ok and "已授權" in msg
+    assert store.allow_ids() == {"Ufriendxxxx"}
+    assert store.grant("Ufriendxxxx")[0] is False       # 重複
+    assert store.grant("bad")[0] is False               # 非 U 開頭 → 拒絕
+    assert store.revoke("Ufriendxxxx")[0] is True
+    assert store.allow_ids() == set()
+    assert store.revoke("Ufriendxxxx")[0] is False      # 不在名單
+
+
+def test_allow_and_users_coexist_in_one_file(tmp_path):
+    path = tmp_path / "w.json"
+    store = JsonSubscriberStore(str(path))
+    store.set("U1", [_item("2330")])
+    store.grant("Uadminxxxx1", "管理員")
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert set(raw.keys()) == {"users", "allow"}        # 同一份 JSON 兩區塊
+    assert raw["users"]["U1"][0]["tw_stock_id"] == "2330"
+    assert raw["allow"][0]["id"] == "Uadminxxxx1"
+
+
+# ---------------------------------------------------------------- 舊格式遷移
+def test_normalize_doc_migrates_legacy_flat():
+    doc = normalize_doc({"U1": [{"tw_stock_id": "2330"}]})
+    assert doc == {"users": {"U1": [{"tw_stock_id": "2330"}]}, "allow": []}
+
+
+def test_legacy_flat_file_is_readable_then_upgraded(tmp_path):
+    path = tmp_path / "legacy.json"
+    path.write_text('{"U1": [{"tw_stock_id": "2330"}]}', encoding="utf-8")
+    store = JsonSubscriberStore(str(path))
+    assert store.user_ids() == ["U1"]                   # 舊格式可讀
+    store.add_item("U1", _item("2454"))                 # 寫入即升級
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert "users" in raw and "allow" in raw
 
 
 # ---------------------------------------------------------------- backend factory
