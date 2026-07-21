@@ -41,7 +41,8 @@ logger = logging.getLogger("multi_agent_system.ai")
 _GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 _DEFAULT_MODEL = "gemini-2.5-flash"
 _MAX_NEWS = 8          # 最多餵幾則（控 token）
-_MAX_SUMMARY_LEN = 300  # 回傳截斷（盯盤卡一行不宜過長）
+_MAX_SUMMARY_LEN = 300  # 個股新聞總結截斷（盯盤卡一行不宜過長）
+_MAX_READ_LEN = 500     # 市場綜合解讀截斷（3-5 句）
 
 # 輪替起點（process-local；GitHub Actions 每次 run 為全新 process → 自然歸零）。
 _rr_offset = 0
@@ -122,6 +123,40 @@ def _call_once(key: str, model: str, prompt: str, timeout: float) -> tuple[str |
     return _extract_text(payload), False
 
 
+def _generate(
+    prompt: str,
+    *,
+    api_key: str | None,
+    api_keys: list[str] | str | None,
+    model: str | None,
+    timeout: float,
+    get_env,
+    label: str,
+    max_len: int,
+) -> str | None:
+    """打 Gemini（多把 key 輪替 + 失敗自動換把）。無 key / 空 prompt / 全部失敗 → None。
+
+    共用給「個股新聞總結」與「市場綜合解讀」——key 輪替邏輯 SSOT，不重複。
+    """
+    global _rr_offset
+    keys = _resolve_keys(api_key, api_keys, get_env)
+    if not keys or not prompt.strip():
+        return None
+    mdl = model or get_env("GEMINI_MODEL") or _DEFAULT_MODEL
+    start = _rr_offset % len(keys)   # 本次從第 start 把起
+    _rr_offset += 1                  # 下次換下一把起（攤平負載）
+    for i in range(len(keys)):
+        idx = (start + i) % len(keys)
+        text, try_next = _call_once(keys[idx], mdl, prompt, timeout)
+        if text is not None:
+            return text[:max_len]
+        if not try_next:
+            return None              # 回應正常但空 → 換 key 無益
+        logger.warning("Gemini 第 %d/%d 把 key 失敗（%s）→ 換下一把", idx + 1, len(keys), label)
+    logger.warning("Gemini %d 把 key 全數失敗（%s）", len(keys), label)
+    return None
+
+
 def summarize_stock_news(
     stock_id: str,
     items: Sequence[NewsItem],
@@ -132,28 +167,43 @@ def summarize_stock_news(
     timeout: float = 20.0,
     get_env=os.environ.get,
 ) -> str | None:
-    """一檔的新聞 → AI 2-3 句繁中總結。
-
-    多把 key 時輪替起用 + 失敗自動換把；無 key / 無新聞 / 全部失敗 → None（caller 退標題）。
-    """
-    global _rr_offset
-    keys = _resolve_keys(api_key, api_keys, get_env)
-    if not keys or not items:
+    """一檔的新聞 → AI 2-3 句繁中總結。無 key / 無新聞 / 全部失敗 → None（caller 退標題）。"""
+    if not items:
         return None
-    mdl = model or get_env("GEMINI_MODEL") or _DEFAULT_MODEL
-    prompt = _build_prompt(stock_id, items)
+    return _generate(
+        _build_prompt(stock_id, items),
+        api_key=api_key, api_keys=api_keys, model=model, timeout=timeout,
+        get_env=get_env, label=stock_id, max_len=_MAX_SUMMARY_LEN,
+    )
 
-    start = _rr_offset % len(keys)   # 本次從第 start 把起
-    _rr_offset += 1                  # 下次總結換下一把起（攤平負載）
-    for i in range(len(keys)):
-        idx = (start + i) % len(keys)
-        text, try_next = _call_once(keys[idx], mdl, prompt, timeout)
-        if text is not None:
-            return text[:_MAX_SUMMARY_LEN]
-        if not try_next:
-            return None              # 回應正常但空 → 換 key 無益，直接退標題
-        logger.warning(
-            "Gemini 第 %d/%d 把 key 失敗（%s）→ 換下一把", idx + 1, len(keys), stock_id
-        )
-    logger.warning("Gemini %d 把 key 全數失敗（%s）→ 退回頭條標題", len(keys), stock_id)
-    return None
+
+def _build_market_prompt(facts: str) -> str:
+    return (
+        "你是投研助理。下面是今天的市場數據（數字皆為實測，禁止更改或杜撰）：\n\n"
+        f"{facts}\n\n"
+        "請用繁體中文寫 3-5 句『綜合解讀』：目前國際與台股大局偏多還偏空、關鍵驅動因子、"
+        "值得留意的風險。只根據上列數據解讀，不要杜撰任何數字，不要開場白與客套。"
+    )
+
+
+def interpret_market(
+    facts: str,
+    *,
+    api_key: str | None = None,
+    api_keys: list[str] | str | None = None,
+    model: str | None = None,
+    timeout: float = 25.0,
+    get_env=os.environ.get,
+) -> str | None:
+    """市場數據 facts（已組好的快訊文字）→ AI 3-5 句綜合解讀。
+
+    對照 §3b / Fund EX-AI-1：AI 只**解讀**（出文字），數字一律由 facts（規則式+DB）提供，
+    不從 AI 萃取。無 key / 空 / 失敗 → None（caller 誠實不顯示 AI 解讀，不杜撰）。
+    """
+    if not facts or not facts.strip():
+        return None
+    return _generate(
+        _build_market_prompt(facts),
+        api_key=api_key, api_keys=api_keys, model=model, timeout=timeout,
+        get_env=get_env, label="market", max_len=_MAX_READ_LEN,
+    )

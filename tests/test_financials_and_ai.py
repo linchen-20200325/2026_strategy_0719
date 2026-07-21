@@ -254,3 +254,25 @@ def test_summarize_all_keys_fail_returns_none(monkeypatch):
 
     monkeypatch.setattr(ai_summary.urllib.request, "urlopen", boom)
     assert ai_summary.summarize_stock_news("2330", _news(1), api_keys=["k1", "k2", "k3"]) is None
+
+
+# ------------------------------------------------------------------ interpret_market（§3b AI 解讀）
+def test_interpret_market_happy(monkeypatch):
+    monkeypatch.setattr(ai_summary, "_rr_offset", 0)
+    captured = {}
+
+    def fake(req, timeout=0):
+        captured["body"] = req.data
+        return _ok_resp("大局偏空：殖利率倒掛且 CPI 偏熱，留意外資賣超。")
+
+    monkeypatch.setattr(ai_summary.urllib.request, "urlopen", fake)
+    out = ai_summary.interpret_market("【美股】利差 -0.2%\n【台股】PMI 48", api_keys=["k"])
+    assert "偏空" in out
+    assert b"PMI 48" in captured["body"]        # facts 有進 prompt
+
+
+def test_interpret_market_no_key_or_empty(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEYS", raising=False)
+    assert ai_summary.interpret_market("some facts") is None        # 無 key → None
+    assert ai_summary.interpret_market("   ", api_keys=["k"]) is None  # 空 facts → None

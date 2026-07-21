@@ -130,6 +130,7 @@ def _run_per_user(orchestrator: WorkflowOrchestrator, args) -> int:
 def _run_market_digest(orchestrator: WorkflowOrchestrator, args) -> int:
     """市場快訊（國際情勢 + 台股）→ broadcast 全體好友（同 mynews 主報告）。"""
     from config import INTL_NEWS_KEYWORDS, TW_MARKET_KEYWORDS
+    from multi_agent_system.ai_summary import interpret_market
     from multi_agent_system.data_agent import DataSourceError
     from multi_agent_system.macro_db import read_tw_macro, read_tw_night
     from multi_agent_system.market_digest import (
@@ -165,11 +166,18 @@ def _run_market_digest(orchestrator: WorkflowOrchestrator, args) -> int:
         logger.warning("台股盤前夜盤讀取失敗（%s）→ 快訊略過夜盤行", exc)
         night = None
 
-    digest = build_market_digest(
+    digest_kwargs = dict(
         session=args.session, day=as_of.strftime("%m/%d"),
         macro=macro.get_reading(), intl_news=intl, tw_news=tw,
         tally=tally_watchlist(results), tw_macro=tw_macro, night=night,
     )
+    # §3b：先組「數據 facts」(規則式+DB) → Gemini 解讀 → 再組含 🧠 AI 解讀的最終快訊。
+    # 無 GEMINI_API_KEY(S) / 失敗 → interpret_market 回 None → 誠實不顯示 AI 段（不杜撰）。
+    facts = build_market_digest(**digest_kwargs)
+    ai_read = interpret_market(facts)
+    if ai_read:
+        logger.info("市場快訊：已附 AI 綜合解讀")
+    digest = build_market_digest(**digest_kwargs, ai_read=ai_read) if ai_read else facts
     print(digest)
     if args.dry_run:
         return 0
