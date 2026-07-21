@@ -131,7 +131,7 @@ def _run_market_digest(orchestrator: WorkflowOrchestrator, args) -> int:
     """市場快訊（國際情勢 + 台股）→ broadcast 全體好友（同 mynews 主報告）。"""
     from config import INTL_NEWS_KEYWORDS, TW_MARKET_KEYWORDS
     from multi_agent_system.data_agent import DataSourceError
-    from multi_agent_system.macro_db import read_tw_macro
+    from multi_agent_system.macro_db import read_tw_macro, read_tw_night
     from multi_agent_system.market_digest import (
         build_market_digest,
         summarize_news,
@@ -153,17 +153,22 @@ def _run_market_digest(orchestrator: WorkflowOrchestrator, args) -> int:
     intl = summarize_news(agent.fetch_news(INTL_NEWS_KEYWORDS, as_of_date=as_of))
     tw = summarize_news(agent.fetch_news(TW_MARKET_KEYWORDS, as_of_date=as_of))
 
-    # 台股總經（PMI + 外資）：讀 stock.db;整段讀不到才略過台股總經行（不影響其餘）。
+    # 台股總經（PMI + 外資）+ 盤前夜盤（期貨留倉 + 台指夜盤）：讀 stock.db;讀不到才略過該段。
     try:
         tw_macro = read_tw_macro(agent.stock_db)
     except DataSourceError as exc:
         logger.warning("台股總經讀取失敗（%s）→ 快訊略過台股總經行", exc)
         tw_macro = None
+    try:
+        night = read_tw_night(agent.stock_db)
+    except DataSourceError as exc:
+        logger.warning("台股盤前夜盤讀取失敗（%s）→ 快訊略過夜盤行", exc)
+        night = None
 
     digest = build_market_digest(
         session=args.session, day=as_of.strftime("%m/%d"),
         macro=macro.get_reading(), intl_news=intl, tw_news=tw,
-        tally=tally_watchlist(results), tw_macro=tw_macro,
+        tally=tally_watchlist(results), tw_macro=tw_macro, night=night,
     )
     print(digest)
     if args.dry_run:

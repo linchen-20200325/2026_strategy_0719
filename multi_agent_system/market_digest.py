@@ -21,12 +21,14 @@ from config import (
     DIGEST_NEWS_TOP_N,
     DIGEST_SENTIMENT_BEARISH_MAX,
     DIGEST_SENTIMENT_BULLISH_MIN,
+    NIGHT_BIG_MOVE_PCT,
+    NIGHT_SMALL_MOVE_PCT,
     PMI_EXPANSION_LEVEL,
     SESSION_LABELS,
     YIELD_INVERSION_PCT,
 )
 
-from .contracts import Action, MacroReading, NewsItem, TwMacroReading
+from .contracts import Action, MacroReading, NewsItem, TwMacroReading, TwNightReading
 from .integration_agent import CycleResult
 
 
@@ -109,6 +111,35 @@ def _tw_macro_line(tw: TwMacroReading) -> str:
     return f"📊 {' · '.join(parts)}{sim}"
 
 
+def night_regime(chg_pct: float) -> str:
+    """台指夜盤漲跌 % → 五分類 + 隔日開盤傾向（門檻走 config SSOT）。"""
+    a = abs(chg_pct)
+    if a < NIGHT_SMALL_MOVE_PCT:
+        return "持平，隔日開平"
+    big = a >= NIGHT_BIG_MOVE_PCT
+    if chg_pct > 0:
+        return "大漲，隔日偏多開高" if big else "小漲，隔日偏多"
+    return "大跌，隔日偏空開低" if big else "小跌，隔日偏空"
+
+
+def _night_lines(night: TwNightReading) -> list[str]:
+    """盤前訊號 0~2 行：台指期外資留倉（口）+ 台指夜盤漲跌→隔日開盤傾向。缺者不列。"""
+    lines: list[str] = []
+    if night.foreign_fut_oi_lots is not None:
+        lots = night.foreign_fut_oi_lots
+        bias = "偏多" if lots > 0 else ("偏空" if lots < 0 else "中性")
+        lines.append(f"🌙 台指期外資留倉 {lots:+,.0f} 口（{bias}）")
+    if night.night_close is not None:
+        seg = f"🌙 台指夜盤 {night.night_close:g}"
+        if night.night_chg_pct is not None:
+            pts = f"{night.night_chg_pts:+.0f} 點 / " if night.night_chg_pts is not None else ""
+            seg += f"（{pts}{night.night_chg_pct:+.1f}% → {night_regime(night.night_chg_pct)}）"
+        lines.append(seg)
+    if lines and night.is_simulated:
+        lines[-1] += "（模擬）"
+    return lines
+
+
 def _news_block(icon_label: str, stat: NewsStat) -> list[str]:
     if stat.count == 0 or stat.mean is None:
         return [f"{icon_label}：無資料（近日無相關新聞）"]
@@ -126,12 +157,14 @@ def build_market_digest(
     tw_news: NewsStat,
     tally: WatchTally,
     tw_macro: TwMacroReading | None = None,
+    night: TwNightReading | None = None,
 ) -> str:
     """組一則市場快訊（mynews 風格 emoji 分區）。day 為 'MM/DD' 或 ISO 前綴。
 
     * 國際情勢 = 美股/全球總經（macro：10Y-2Y 利差 + CPI）+ 外電情緒。
-    * 台股     = 台股總經（tw_macro：PMI + 外資，選填）+ 追蹤清單訊號統計 + 台股新聞情緒。
-      tw_macro 省略（None）時只是不顯示台股總經行,其餘照舊（向後相容）。
+    * 台股     = 台股總經（tw_macro：PMI + 外資，選填）+ 盤前夜盤訊號（night：台指期
+      外資留倉 + 台指夜盤→隔日開盤傾向，選填）+ 追蹤清單訊號統計 + 台股新聞情緒。
+      tw_macro / night 省略（None）時不顯示對應行,其餘照舊（向後相容）。
     """
     label = SESSION_LABELS.get(session, session)
     lines = [
@@ -143,6 +176,8 @@ def build_market_digest(
     ]
     if tw_macro is not None:
         lines.append(_tw_macro_line(tw_macro))
+    if night is not None:
+        lines.extend(_night_lines(night))
     lines.append(
         f"🇹🇼 追蹤 {tally.n} 檔 → 🟢利多 {tally.bullish} / 🟡觀望 {tally.hold} / 🔴偏空 {tally.bearish}"
     )

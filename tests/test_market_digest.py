@@ -4,14 +4,29 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from multi_agent_system.contracts import Action, MacroReading, NewsItem, TwMacroReading
+from multi_agent_system.contracts import (
+    Action,
+    MacroReading,
+    NewsItem,
+    TwMacroReading,
+    TwNightReading,
+)
 from multi_agent_system.market_digest import (
     NewsStat,
     build_market_digest,
+    night_regime,
     sentiment_label,
     summarize_news,
     tally_watchlist,
 )
+
+
+def _night(oi=12480.0, close=22150.0, pts=85.0, pct=0.385, *, simulated=False):
+    return TwNightReading(
+        foreign_fut_oi_lots=oi, fut_oi_as_of="2026-07-18",
+        night_close=close, night_chg_pts=pts, night_chg_pct=pct, night_as_of="2026-07-18",
+        source="test", is_simulated=simulated,
+    )
 
 
 def _tw_macro(pmi, foreign, *, simulated=False):
@@ -139,6 +154,53 @@ def test_build_digest_tw_macro_partial_and_contraction():
     )
     assert "PMI 48.5（收縮）" in digest
     assert "外資 資料不足" in digest
+
+
+def test_night_regime_five_classes():
+    assert night_regime(1.5) == "大漲，隔日偏多開高"
+    assert night_regime(0.4) == "小漲，隔日偏多"
+    assert night_regime(0.05) == "持平，隔日開平"
+    assert night_regime(-0.4) == "小跌，隔日偏空"
+    assert night_regime(-1.5) == "大跌，隔日偏空開低"
+
+
+def test_build_digest_night_rendered():
+    digest = build_market_digest(
+        session="morning", day="07/21",
+        macro=_macro(0.4, 3.0),
+        intl_news=NewsStat(0, None, []),
+        tw_news=NewsStat(0, None, []),
+        tally=tally_watchlist([_res(Action.HOLD)]),
+        night=_night(oi=12480.0, close=22150.0, pts=85.0, pct=0.385),
+    )
+    assert "台指期外資留倉 +12,480 口（偏多）" in digest
+    assert "台指夜盤 22150" in digest
+    assert "小漲，隔日偏多" in digest
+
+
+def test_build_digest_night_oi_only_and_short_bias():
+    # 只有期貨留倉（夜盤缺）+ 淨空 → 偏空；夜盤行不出現。
+    digest = build_market_digest(
+        session="morning", day="07/21",
+        macro=_macro(0.4, 3.0),
+        intl_news=NewsStat(0, None, []),
+        tw_news=NewsStat(0, None, []),
+        tally=tally_watchlist([_res(Action.HOLD)]),
+        night=_night(oi=-3300.0, close=None, pts=None, pct=None),
+    )
+    assert "台指期外資留倉 -3,300 口（偏空）" in digest
+    assert "台指夜盤" not in digest
+
+
+def test_build_digest_without_night_backward_compatible():
+    digest = build_market_digest(
+        session="morning", day="07/21",
+        macro=_macro(0.4, 3.0),
+        intl_news=NewsStat(0, None, []),
+        tw_news=NewsStat(0, None, []),
+        tally=tally_watchlist([_res(Action.HOLD)]),
+    )
+    assert "🌙" not in digest      # 未傳 night → 無夜盤行
 
 
 def test_build_digest_without_tw_macro_backward_compatible():

@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from .contracts import MacroReading, TwMacroReading
+from .contracts import MacroReading, TwMacroReading, TwNightReading
 from .data_agent import DataSourceError, _connect_readonly
 
 
@@ -131,5 +131,47 @@ def read_tw_macro(stock_db_path: str) -> TwMacroReading:
         foreign_net_yi=foreign_net_yi,
         foreign_as_of=foreign_as_of,
         source="stock.db:macro_tw_pmi+institutional_flow",
+        is_simulated=False,
+    )
+
+
+def read_tw_night(stock_db_path: str) -> TwNightReading:
+    """讀 stock.db → 台股盤前訊號（外資期貨留倉 + 台指夜盤漲跌）。各自可缺 → None。
+
+    * futures_oi(date, foreign_net_oi_lots)      外資期貨留倉淨口數（口）。
+    * futures_night(date, night_close, chg_pts, chg_pct)  台指夜盤收盤 + 相對日盤漲跌。
+    表為 live 層（需 FINMIND_TOKEN 才落地）→ 表缺時該段回 None（不炸、不捏造）。
+    """
+    oi = oi_as_of = None
+    night_close = night_pts = night_pct = night_as_of = None
+
+    with _connect_readonly(stock_db_path) as conn:
+        if _table_exists(conn, "futures_oi"):
+            row = conn.execute(
+                "SELECT date, foreign_net_oi_lots FROM futures_oi "
+                "WHERE foreign_net_oi_lots IS NOT NULL ORDER BY date DESC LIMIT 1"
+            ).fetchone()
+            if row is not None:
+                oi_as_of, oi = str(row[0]), float(row[1])
+
+        if _table_exists(conn, "futures_night"):
+            row = conn.execute(
+                "SELECT date, night_close, chg_pts, chg_pct FROM futures_night "
+                "WHERE night_close IS NOT NULL ORDER BY date DESC LIMIT 1"
+            ).fetchone()
+            if row is not None:
+                night_as_of = str(row[0])
+                night_close = float(row[1])
+                night_pts = None if row[2] is None else float(row[2])
+                night_pct = None if row[3] is None else float(row[3])
+
+    return TwNightReading(
+        foreign_fut_oi_lots=oi,
+        fut_oi_as_of=oi_as_of,
+        night_close=night_close,
+        night_chg_pts=night_pts,
+        night_chg_pct=night_pct,
+        night_as_of=night_as_of,
+        source="stock.db:futures_oi+futures_night",
         is_simulated=False,
     )

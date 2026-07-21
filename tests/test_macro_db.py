@@ -11,7 +11,7 @@ import sqlite3
 import pytest
 
 from multi_agent_system.data_agent import DataSourceError
-from multi_agent_system.macro_db import read_tw_macro, read_us_macro
+from multi_agent_system.macro_db import read_tw_macro, read_tw_night, read_us_macro
 
 
 # ------------------------------------------------------------------ fixtures
@@ -118,3 +118,39 @@ def test_read_tw_macro_empty_db_all_none(tmp_path):
 def test_read_tw_macro_missing_file_raises(tmp_path):
     with pytest.raises(DataSourceError):
         read_tw_macro(str(tmp_path / "nope.db"))
+
+
+# ------------------------------------------------------------------ read_tw_night
+def test_read_tw_night_both_present(tmp_path):
+    p = tmp_path / "stock.db"
+    with sqlite3.connect(str(p)) as conn:
+        conn.execute("CREATE TABLE futures_oi (date TEXT, foreign_net_oi_lots REAL)")
+        conn.executemany("INSERT INTO futures_oi VALUES (?,?)",
+                         [("2026-07-17", 9800.0), ("2026-07-18", 12480.0)])
+        conn.execute("CREATE TABLE futures_night "
+                     "(date TEXT, night_close REAL, day_close REAL, chg_pts REAL, chg_pct REAL)")
+        conn.executemany("INSERT INTO futures_night VALUES (?,?,?,?,?)",
+                         [("2026-07-18", 22150.0, 22065.0, 85.0, 0.385)])
+    r = read_tw_night(str(p))
+    assert r.foreign_fut_oi_lots == pytest.approx(12480.0)   # 最新
+    assert r.night_close == pytest.approx(22150.0)
+    assert r.night_chg_pct == pytest.approx(0.385)
+    assert r.is_simulated is False
+
+
+def test_read_tw_night_missing_tables_all_none(tmp_path):
+    p = tmp_path / "stock.db"
+    with sqlite3.connect(str(p)) as conn:
+        conn.execute("CREATE TABLE other (x INT)")
+    r = read_tw_night(str(p))
+    assert r.foreign_fut_oi_lots is None and r.night_close is None
+
+
+def test_read_tw_night_only_oi(tmp_path):
+    p = tmp_path / "stock.db"
+    with sqlite3.connect(str(p)) as conn:
+        conn.execute("CREATE TABLE futures_oi (date TEXT, foreign_net_oi_lots REAL)")
+        conn.executemany("INSERT INTO futures_oi VALUES (?,?)", [("2026-07-18", -3300.0)])
+    r = read_tw_night(str(p))
+    assert r.foreign_fut_oi_lots == pytest.approx(-3300.0)
+    assert r.night_close is None

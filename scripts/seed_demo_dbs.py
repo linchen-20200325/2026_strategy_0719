@@ -57,6 +57,18 @@ _TW_INST_ROWS = [
     ("2026-07-18", -60.8),
 ]
 
+# 盤前訊號：台指期外資留倉（口，+多/-空）+ 台指夜盤收盤/漲跌（點, %）。
+_TW_FUT_OI_ROWS = [
+    # (date, foreign_net_oi_lots)
+    ("2026-07-17", 9800.0),
+    ("2026-07-18", 12480.0),      # 最新 → +12,480 口（偏多）
+]
+_TW_FUT_NIGHT_ROWS = [
+    # (date, night_close, day_close, chg_pts, chg_pct)
+    ("2026-07-17", 22065.0, 22010.0, 55.0, 0.25),
+    ("2026-07-18", 22150.0, 22065.0, 85.0, 0.385),   # 最新 → +85 點 / +0.4% → 小漲（偏多）
+]
+
 _US_ROWS = [
     # (date, us_stock_id, close)
     ("2026-07-16", "NVDA", 172.0),
@@ -109,6 +121,16 @@ def _create_stock_db(path: str) -> None:
         conn.execute("DROP TABLE IF EXISTS institutional_flow")
         conn.execute("CREATE TABLE institutional_flow (date TEXT, foreign_buy REAL)")
         conn.executemany("INSERT INTO institutional_flow VALUES (?,?)", _TW_INST_ROWS)
+        # 盤前夜盤（B：台指期外資留倉 + 台指夜盤漲跌）。
+        conn.execute("DROP TABLE IF EXISTS futures_oi")
+        conn.execute("CREATE TABLE futures_oi (date TEXT, foreign_net_oi_lots REAL)")
+        conn.executemany("INSERT INTO futures_oi VALUES (?,?)", _TW_FUT_OI_ROWS)
+        conn.execute("DROP TABLE IF EXISTS futures_night")
+        conn.execute(
+            "CREATE TABLE futures_night "
+            "(date TEXT, night_close REAL, day_close REAL, chg_pts REAL, chg_pct REAL)"
+        )
+        conn.executemany("INSERT INTO futures_night VALUES (?,?,?,?,?)", _TW_FUT_NIGHT_ROWS)
 
 
 def _create_fund_db(path: str) -> None:

@@ -143,6 +143,10 @@ DIGEST_NEWS_TOP_N: int = 3                    # 摘要列出的頭條數上限
 PMI_EXPANSION_LEVEL: float = 50.0
 # 外資買賣超（stock.db institutional_flow，單位 億元）：sign 即語意（>0 買超 / <0 賣超），無需門檻。
 
+# 台指夜盤漲跌分類（相對日盤收盤 %）—— 盤前「隔日開盤方向」判讀（對照 kevin801221 repo 五分類）。
+NIGHT_BIG_MOVE_PCT: float = 1.0     # |chg%| >= 1.0 → 大漲 / 大跌
+NIGHT_SMALL_MOVE_PCT: float = 0.2   # |chg%| >= 0.2 → 小漲 / 小跌；之間 → 持平
+
 # session 顯示標籤（runner 彙整 digest 與 market digest 共用 → SSOT，勿各自寫 map）。
 SESSION_LABELS: dict[str, str] = {"morning": "早盤前", "afternoon": "收盤後"}
 

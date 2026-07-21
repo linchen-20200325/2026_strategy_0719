@@ -215,6 +215,26 @@ class TwMacroReading:
 
 
 @dataclass(frozen=True)
+class TwNightReading:
+    """台股盤前訊號：台指期外資留倉 + 台指夜盤漲跌（來源：my-stock-dashboard / stock.db）。
+
+    兩訊號各自獨立可缺（None → 該段不顯示，不捏造）：
+    * foreign_fut_oi_lots  外資期貨留倉淨口數（**口**；+ 淨多 / − 淨空）。
+    * night_close/chg       台指期夜盤（盤後 15:00–05:00 台灣時間）收盤 + 相對日盤收盤漲跌
+      （night_chg_pts 點 / night_chg_pct %）—— 涵蓋歐美盤 → 對隔日台股開盤有領先性。
+    """
+
+    foreign_fut_oi_lots: float | None
+    fut_oi_as_of: str | None
+    night_close: float | None
+    night_chg_pts: float | None
+    night_chg_pct: float | None
+    night_as_of: str | None
+    source: str
+    is_simulated: bool = False
+
+
+@dataclass(frozen=True)
 class PortfolioState:
     """資產配置專家的輸入（來自呼叫端的投組現況，非三庫資料）。"""
 
