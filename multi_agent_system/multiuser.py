@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Protocol
 
+from config import today_tw
+
 from .integration_agent import WorkflowOrchestrator
 from .line_push import LinePusher, LinePushError
 from .macro_providers import MacroDataProvider
@@ -80,7 +82,7 @@ def run_per_user_push(
         if full_watch:
             digest = format_watch_digest(
                 cycles,
-                day=(as_of or date.today()).isoformat(),
+                day=(as_of or today_tw()).isoformat(),
             )
         else:
             if only_bullish and not ranked:

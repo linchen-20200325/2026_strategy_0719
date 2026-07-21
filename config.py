@@ -10,6 +10,28 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta, timezone
+
+# =============================================================================
+# 0. 時間 SSOT — 台灣時區 (UTC+8)
+# =============================================================================
+# 全系統「現在 / 今天」的唯一真相源。所有外部資料（news.db / stock.db / 夜盤 / fund.db）
+# 皆以**台灣日期**戳記，但雲端 runner（GitHub Actions）為 UTC。盤前班於 23:30 UTC 觸發，
+# naive date.today() 會落後台灣日期一天，使當日新聞被 [as_of-7, as_of] 日期窗濾掉（→ 無資料）。
+# 跨層 as_of / 新聞窗 / freshness 一律用 today_tw()，嚴禁 naive date.today()。
+TW_TZ = timezone(timedelta(hours=8))
+
+
+def now_tw() -> datetime:
+    """台灣當下（tz-aware datetime）。"""
+    return datetime.now(TW_TZ)
+
+
+def today_tw() -> date:
+    """台灣今天（date）。跨層 as_of / 新聞窗 / freshness 對齊一律用此。"""
+    return now_tw().date()
+
+
 # =============================================================================
 # 1. 決策融合 (Strategy Agent) — 三專家加權
 # =============================================================================

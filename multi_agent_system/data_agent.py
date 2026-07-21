@@ -34,6 +34,7 @@ from config import (
     NEWS_LOOKBACK_DAYS,
     SENTIMENT_RAW_MAX,
     SENTIMENT_RAW_MIN,
+    today_tw,
 )
 
 from .contracts import (
@@ -126,7 +127,7 @@ class DataAggregationAgent:
         if lookback_days <= 0:
             raise ValueError(f"lookback_days 必須為正整數，收到 {lookback_days}")
 
-        as_of = as_of_date or date.today()
+        as_of = as_of_date or today_tw()
         warnings: list[str] = []
 
         technical = self._fetch_technical(tw_stock_id, warnings)
@@ -162,7 +163,7 @@ class DataAggregationAgent:
 
         沿用內部 `_fetch_news`（title/content 命中關鍵字即納入）,窗 = [as_of - lookback, as_of]。
         """
-        as_of = as_of_date or date.today()
+        as_of = as_of_date or today_tw()
         warnings: list[str] = []
         return self._fetch_news(news_keywords, as_of, lookback_days, warnings)
 

@@ -17,8 +17,9 @@
 
 from __future__ import annotations
 
-from datetime import date
 from typing import Protocol
+
+from config import today_tw
 
 from .contracts import MacroReading
 
@@ -74,7 +75,7 @@ class SimulatedMacroProvider(StaticMacroProvider):
         super().__init__(
             yield_spread_pct=yield_spread_pct,
             cpi_yoy_pct=cpi_yoy_pct,
-            as_of=as_of or date.today().isoformat(),
+            as_of=as_of or today_tw().isoformat(),
             source=f"SIMULATED:{scenario}",
             is_simulated=True,
         )
