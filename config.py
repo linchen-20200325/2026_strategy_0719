@@ -13,11 +13,14 @@ from __future__ import annotations
 # =============================================================================
 # 1. 決策融合 (Strategy Agent) — 三專家加權
 # =============================================================================
-# 使用者指定權重：總經 30% / 技術 50% / 配置 20%（總和必為 1.0）。
+# 融合權重（總和必為 1.0）。加入「基本面」專家後，macro:technical:allocation 仍維持
+# 原 3:5:2 比例（0.24:0.40:0.16），故當某標的**無基本面資料**時，就可用專家重新歸一化
+# 會精確還原成原本的 0.30/0.50/0.20 —— ETF/查無財報者行為不變，基本面只在有資料時加權。
 FUSION_WEIGHTS: dict[str, float] = {
-    "macro": 0.30,
-    "technical": 0.50,
-    "allocation": 0.20,
+    "macro": 0.24,
+    "technical": 0.40,
+    "fundamental": 0.20,
+    "allocation": 0.16,
 }
 
 # Final Score ∈ [0,1] → 五大交易行動的「含下界」門檻。
@@ -51,6 +54,25 @@ YIELD_HEALTHY_PCT: float = 1.5      # spread >= 1.5 -> 曲線分量 = 1（完全
 # --- 通膨 (CPI YoY, 單位：百分點) ---
 CPI_TARGET_PCT: float = 2.0         # <= 2% (Fed 目標) -> CPI 分量 = 1
 CPI_HOT_PCT: float = 5.0            # >= 5% (過熱) -> CPI 分量 = 0
+
+# =============================================================================
+# 2b. 基本面專家 (Fundamental Agent) — 財報品質 + 月營收動能
+# =============================================================================
+# 基本面得分 = 毛利率 / 淨利率 / 月營收 YoY 三分量加權（皆映射至 [0,1]，1=最佳）。
+# 月營收缺（需 FINMIND_TOKEN 才落地）時於 agent 內重新歸一化（只用毛利+淨利）。
+FUNDAMENTAL_SUBWEIGHTS: dict[str, float] = {
+    "gross_margin": 0.30,
+    "net_margin": 0.40,
+    "revenue_yoy": 0.30,
+}
+
+# 各分量線性映射區間（單位 %）。x <= LOW → 0 分；x >= HIGH → 1 分；中間線性。
+GROSS_MARGIN_LOW_PCT: float = 0.0
+GROSS_MARGIN_HIGH_PCT: float = 40.0     # 毛利率 40% 視為優異
+NET_MARGIN_LOW_PCT: float = 0.0
+NET_MARGIN_HIGH_PCT: float = 20.0       # 淨利率 20% 視為優異
+REVENUE_YOY_LOW_PCT: float = -20.0      # 月營收年減 20% → 0 分
+REVENUE_YOY_HIGH_PCT: float = 30.0      # 月營收年增 30% → 1 分
 
 # =============================================================================
 # 3. 技術線型專家 (Technical Agent) — 布林通道 + RSI
@@ -138,6 +160,7 @@ def _validate_config() -> None:
     for name, weights in (
         ("FUSION_WEIGHTS", FUSION_WEIGHTS),
         ("MACRO_SUBWEIGHTS", MACRO_SUBWEIGHTS),
+        ("FUNDAMENTAL_SUBWEIGHTS", FUNDAMENTAL_SUBWEIGHTS),
         ("TECH_SUBWEIGHTS", TECH_SUBWEIGHTS),
     ):
         total = math.fsum(weights.values())

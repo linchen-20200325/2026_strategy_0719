@@ -27,9 +27,10 @@ _ACTION_TONE: dict[Action, str] = {
 _EXPERT_LABELS: dict[str, str] = {
     "macro": "總經 Macro",
     "technical": "技術 Technical",
+    "fundamental": "基本面 Fundamental",
     "allocation": "配置 Allocation",
 }
-_WEIGHT_KEYS = ("macro", "technical", "allocation")
+_WEIGHT_KEYS = ("macro", "technical", "fundamental", "allocation")
 
 
 @dataclass(frozen=True)
@@ -78,12 +79,27 @@ def hex_to_rgba(hex_str: str, alpha: float) -> str:
 
 
 def score_breakdown(decision: FinalDecision) -> list[BreakdownRow]:
-    """三專家的得分/權重/貢獻度拆解（供圖表 + 展開原因）。"""
+    """各專家的得分/權重/貢獻度拆解（供圖表 + 展開原因）。
+
+    權重採**有效（重新歸一化後）權重**：只就「有評分」的專家歸一化，故貢獻總和 = Final Score。
+    基本面為選填 → 該標的無財報時不列此列（僅列有給評分或必需的專家）。
+    """
+    keys = [k for k in _WEIGHT_KEYS if k in decision.verdicts]
+    scored = [k for k in keys if decision.verdicts[k].score is not None]
+    total_w = sum(FUSION_WEIGHTS[k] for k in scored) or 1.0
+
     rows: list[BreakdownRow] = []
-    for key in _WEIGHT_KEYS:
+    for key in keys:
         v = decision.verdicts[key]
-        weight = FUSION_WEIGHTS[key]
-        contribution = None if v.score is None else round(weight * v.score, 4)
+        # 選填的基本面若缺席（無評分）→ 不列（保持既有三專家拆解不變）。
+        if key == "fundamental" and v.score is None:
+            continue
+        if v.score is not None:
+            weight = FUSION_WEIGHTS[key] / total_w      # 有效權重
+            contribution = round(weight * v.score, 4)
+        else:
+            weight = FUSION_WEIGHTS[key]                # 缺料（必需專家）→ 名目權重
+            contribution = None
         rows.append(
             BreakdownRow(
                 key=key,

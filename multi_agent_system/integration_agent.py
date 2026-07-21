@@ -40,6 +40,7 @@ from config import NEWS_LOOKBACK_DAYS
 from .allocation_agent import AssetAllocationAgent
 from .contracts import Action, DataPacket, FinalDecision, PortfolioState
 from .data_agent import DataAggregationAgent
+from .fundamental_agent import FundamentalAgent
 from .macro_agent import MacroeconomicAgent
 from .macro_providers import MacroDataProvider
 from .strategy_agent import StrategyAgent
@@ -154,6 +155,7 @@ class WorkflowOrchestrator:
         self.data_agent = data_agent
         self.macro_agent = MacroeconomicAgent()
         self.technical_agent = TechnicalAnalysisAgent()
+        self.fundamental_agent = FundamentalAgent()
         self.allocation_agent = AssetAllocationAgent()
         self.strategy_agent = StrategyAgent(require_all_experts=require_all_experts)
         self.broker = broker or MockBrokerAPI()
@@ -173,15 +175,16 @@ class WorkflowOrchestrator:
             for w in packet.warnings:
                 logger.warning("[DataAgent] %s", w)
 
-        # 2) 三位專家評估
+        # 2) 專家評估（總經 / 技術 / 基本面 / 配置）
         macro_reading = request.macro_provider.get_reading()
         macro_v = self.macro_agent.evaluate(macro_reading, packet.news_sentiment_mean)
         tech_v = self.technical_agent.evaluate(packet.technical)
+        fund_v = self.fundamental_agent.evaluate(packet.financials, packet.revenue_yoy_pct)
         alloc_v = self.allocation_agent.evaluate(request.portfolio_state)
 
-        # 3) 決策融合
+        # 3) 決策融合（基本面為選填專家，缺 → 退回三專家歸一化）
         decision = self.strategy_agent.decide(
-            request.tw_stock_id, macro_v, tech_v, alloc_v
+            request.tw_stock_id, macro_v, tech_v, alloc_v, fund_v
         )
 
         # 4) 選配下單（Mock）

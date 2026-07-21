@@ -128,6 +128,7 @@ class DataPacket:
     news_sentiment_mean: float | None   # 過去 N 天平均情緒；無新聞則 None
     news_count: int
     financials: FinancialsSnapshot | None = None   # 最新一期季報（缺 → None）
+    revenue_yoy_pct: float | None = None           # 最新月營收年增率 %（缺/未落地 → None）
     warnings: tuple[str, ...] = ()      # 缺料/降級的明確告警（不靜默）
     fetched_at: datetime = field(default_factory=utc_now)
 
@@ -154,6 +155,7 @@ class DataPacket:
             "news_sentiment_mean": self.news_sentiment_mean,
             "news_count": self.news_count,
             "financials": snap(self.financials),
+            "revenue_yoy_pct": self.revenue_yoy_pct,
             "warnings": list(self.warnings),
             "fetched_at": self.fetched_at.isoformat(),
         }

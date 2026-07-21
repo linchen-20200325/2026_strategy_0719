@@ -133,6 +133,7 @@ class DataAggregationAgent:
         us_link = self._fetch_us_link(us_stock_id, warnings)
         news = self._fetch_news(news_keywords, as_of, lookback_days, warnings)
         financials = self._fetch_financials(tw_stock_id, warnings)
+        revenue_yoy = self._fetch_revenue_yoy(tw_stock_id, warnings)
 
         sentiment_mean = None
         if news:
@@ -146,6 +147,7 @@ class DataAggregationAgent:
             news_sentiment_mean=sentiment_mean,
             news_count=len(news),
             financials=financials,
+            revenue_yoy_pct=revenue_yoy,
             warnings=tuple(warnings),
         )
 
@@ -283,6 +285,45 @@ class DataAggregationAgent:
             gross_margin_pct=gm,
             net_margin_pct=nm,
         )
+
+    def _fetch_revenue_yoy(
+        self, tw_stock_id: str, warnings: list[str]
+    ) -> float | None:
+        """最新月營收年增率 %（monthly_revenue：最新月 vs 去年同月）。表缺/查無/基期缺 → None。
+
+        單位：monthly_revenue.revenue 為「元」；YoY 為比率（去量綱），跨年同月比較。
+        月營收表為 live 層（需 FINMIND_TOKEN 才落地）→ 表缺時回 None（基本面退為僅財報）。
+        """
+        try:
+            with _connect_readonly(self.stock_db) as conn:
+                latest = _read_sql(
+                    conn,
+                    "SELECT date, revenue FROM monthly_revenue WHERE stock_id = ? "
+                    "AND revenue IS NOT NULL ORDER BY date DESC LIMIT 1",
+                    [tw_stock_id],
+                )
+                if latest.empty:
+                    return None
+                ld = str(latest.iloc[0]["date"])
+                lv = float(latest.iloc[0]["revenue"])
+                # 去年同月（以 YYYY-MM 前綴比對，容忍日期尾碼差異）。
+                y, m = int(ld[:4]), int(ld[5:7])
+                prior = _read_sql(
+                    conn,
+                    "SELECT revenue FROM monthly_revenue WHERE stock_id = ? "
+                    "AND date LIKE ? AND revenue IS NOT NULL ORDER BY date DESC LIMIT 1",
+                    [tw_stock_id, f"{y - 1:04d}-{m:02d}-%"],
+                )
+        except DataSourceError:
+            # monthly_revenue 表不存在（未設 FINMIND_TOKEN）→ 無月營收，基本面退為僅財報。
+            return None
+        if prior.empty:
+            return None
+        pv = float(prior.iloc[0]["revenue"])
+        if pv <= 0:                      # 基期非正 → YoY 失真，不算（不 ÷0/負）。
+            warnings.append(f"{tw_stock_id} 月營收基期<=0，跳過 YoY")
+            return None
+        return (lv / pv - 1.0) * 100.0
 
     def _fetch_news(
         self,
