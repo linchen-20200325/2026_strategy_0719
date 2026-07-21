@@ -192,23 +192,14 @@ def test_build_digest_night_oi_only_and_short_bias():
     assert "台指夜盤" not in digest
 
 
-def test_build_digest_ai_read_section():
-    digest = build_market_digest(
-        session="morning", day="07/21",
-        macro=_macro(0.4, 3.0), intl_news=NewsStat(0, None, []), tw_news=NewsStat(0, None, []),
-        tally=tally_watchlist([_res(Action.HOLD)]),
-        ai_read="綜合來看國際偏空、台股中性。",
-    )
-    assert "🧠 AI 解讀" in digest and "綜合來看國際偏空、台股中性。" in digest
-
-
-def test_build_digest_without_ai_read_backward_compatible():
+def test_build_digest_has_no_llm_section():
+    # 純規則式快訊：不含任何 LLM 敘事段（🧠）。判讀/數字全走規則式 + DB。
     digest = build_market_digest(
         session="morning", day="07/21",
         macro=_macro(0.4, 3.0), intl_news=NewsStat(0, None, []), tw_news=NewsStat(0, None, []),
         tally=tally_watchlist([_res(Action.HOLD)]),
     )
-    assert "🧠" not in digest          # 未傳 ai_read → 無 AI 解讀段
+    assert "🧠" not in digest
 
 
 def test_build_digest_without_night_backward_compatible():

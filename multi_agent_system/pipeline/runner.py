@@ -252,21 +252,19 @@ def _fin_line(f) -> str:
     return f"📈 {f.period_label}季報 " + " · ".join(parts)
 
 
-def _news_line(packet, news_summary: str | None) -> str:
-    """新聞：優先 AI 總結；無 AI（無 key/失敗）→ 退回頭條標題；皆無 → 空字串。"""
-    if news_summary:
-        return "📰 " + news_summary
+def _news_line(packet) -> str:
+    """新聞：顯示 news.db 真實頭條標題（最多 2 則）；無新聞 → 空字串。"""
     if packet.news:
         tops = "；".join(n.title for n in packet.news[:2])
         return "📰 " + tops
     return ""
 
 
-def format_stock_card(result: CycleResult, *, news_summary: str | None = None) -> str:
-    """單一標的盯盤卡：判讀 → 📊 技術 → 💰 籌碼 → 📰 新聞（AI 總結/頭條）→ 📈 最新季報。
+def format_stock_card(result: CycleResult) -> str:
+    """單一標的盯盤卡：判讀 → 📊 技術 → 💰 籌碼 → 📰 新聞頭條 → 📈 最新季報。
 
     資料缺席一律誠實呈現（判讀 abstain → 「資料不足」;技術缺 → 「—」;籌碼/新聞/財報缺 → 略過該行）。
-    news_summary 由推播端（multiuser）先以 Gemini 產好傳入；未傳則退回頭條標題（不杜撰）。
+    新聞只顯示 news.db 真實頭條標題（不經 LLM、不杜撰）。
     """
     d = result.decision
     if d.abstained or d.final_score is None:
@@ -284,7 +282,7 @@ def format_stock_card(result: CycleResult, *, news_summary: str | None = None) -
         if chip:
             lines.append("💰 籌碼 " + chip)
 
-    news = _news_line(result.packet, news_summary)
+    news = _news_line(result.packet)
     if news:
         lines.append(news)
     fin = _fin_line(result.packet.financials)
@@ -298,22 +296,16 @@ def format_watch_digest(
     *,
     day: str,
     title: str = "📈 個股盯盤",
-    news_summaries: dict[str, str] | None = None,
 ) -> str:
     """全清單盯盤（對齊 LINE 盯盤 bot）：每檔一張卡（判讀＋技術＋籌碼＋新聞＋財報），含指令頁尾。
 
     與 `format_bullish_digest`（只推利多榜）不同：本函式**逐檔全列**，即使中性/利空也列出，
-    符合「每天固定收到自己清單狀態」的盯盤體驗。
-    news_summaries：{stock_id: AI 新聞總結}，由推播端先產好；某檔缺 → 該卡退回頭條標題。
+    符合「每天固定收到自己清單狀態」的盯盤體驗。新聞只顯示真實頭條（不經 LLM）。
     """
     head = f"{title} {day}"
     if not results:
         return f"{head}\n（清單為空）"
-    summaries = news_summaries or {}
-    cards = [
-        format_stock_card(r, news_summary=summaries.get(r.decision.tw_stock_id))
-        for r in results
-    ]
+    cards = [format_stock_card(r) for r in results]
     footer = "（僅供參考，非投資建議。指令：加/刪/清單）"
     return "\n\n".join([head, *cards, footer])
 
