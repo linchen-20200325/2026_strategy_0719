@@ -85,6 +85,30 @@ class UsLinkSnapshot:
 
 
 @dataclass(frozen=True)
+class FinancialsSnapshot:
+    """個股最新一期季報（來源：my-stock-dashboard / stock.db stock_fundamentals）。
+
+    單位鐵則：金額欄=**千元**、eps=元、margin=%。roc_year 為**民國年**（+1911=西元）。
+    金額 / margin 可缺（None → 顯示時略過該欄，不捏造，§1 Fail Loud）。
+    """
+
+    stock_id: str
+    roc_year: int
+    season: int
+    eps: float | None
+    revenue_k: float | None            # 營收（千元）
+    gross_margin_pct: float | None     # 毛利率 %（gross_profit / revenue）
+    net_margin_pct: float | None       # 淨利率 %（net_income / revenue）
+    source: str = "stock.db:stock_fundamentals"
+    fetched_at: datetime = field(default_factory=utc_now)
+
+    @property
+    def period_label(self) -> str:
+        """西元年 + 季，如 '2026 Q1'（roc_year 115 → 2026）。"""
+        return f"{self.roc_year + 1911} Q{self.season}"
+
+
+@dataclass(frozen=True)
 class NewsItem:
     """單則新聞（來源：mynews / news.db）。"""
 
@@ -103,6 +127,7 @@ class DataPacket:
     news: tuple[NewsItem, ...]
     news_sentiment_mean: float | None   # 過去 N 天平均情緒；無新聞則 None
     news_count: int
+    financials: FinancialsSnapshot | None = None   # 最新一期季報（缺 → None）
     warnings: tuple[str, ...] = ()      # 缺料/降級的明確告警（不靜默）
     fetched_at: datetime = field(default_factory=utc_now)
 
@@ -128,6 +153,7 @@ class DataPacket:
             "news": [snap(n) for n in self.news],
             "news_sentiment_mean": self.news_sentiment_mean,
             "news_count": self.news_count,
+            "financials": snap(self.financials),
             "warnings": list(self.warnings),
             "fetched_at": self.fetched_at.isoformat(),
         }

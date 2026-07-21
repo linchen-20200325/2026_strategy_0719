@@ -38,6 +38,7 @@ from config import (
 
 from .contracts import (
     DataPacket,
+    FinancialsSnapshot,
     NewsItem,
     TechnicalSnapshot,
     UsLinkSnapshot,
@@ -131,6 +132,7 @@ class DataAggregationAgent:
         technical = self._fetch_technical(tw_stock_id, warnings)
         us_link = self._fetch_us_link(us_stock_id, warnings)
         news = self._fetch_news(news_keywords, as_of, lookback_days, warnings)
+        financials = self._fetch_financials(tw_stock_id, warnings)
 
         sentiment_mean = None
         if news:
@@ -143,6 +145,7 @@ class DataAggregationAgent:
             news=tuple(news),
             news_sentiment_mean=sentiment_mean,
             news_count=len(news),
+            financials=financials,
             warnings=tuple(warnings),
         )
 
@@ -235,6 +238,50 @@ class DataAggregationAgent:
             us_stock_id=str(row["us_stock_id"]),
             as_of=str(row["date"]),
             close=float(row["close"]),
+        )
+
+    def _fetch_financials(
+        self, tw_stock_id: str, warnings: list[str]
+    ) -> FinancialsSnapshot | None:
+        """最新一期季報（stock.db stock_fundamentals）。表缺 / 查無 → None（不炸整體）。
+
+        單位：金額欄=千元、eps=元。毛利率/淨利率就地算（revenue<=0 → None，不 ÷0）。
+        """
+        sql = (
+            "SELECT stock_id, roc_year, season, revenue, gross_profit, net_income, eps "
+            "FROM stock_fundamentals WHERE stock_id = ? "
+            "ORDER BY roc_year DESC, season DESC LIMIT 1"
+        )
+        try:
+            with _connect_readonly(self.stock_db) as conn:
+                df = _read_sql(conn, sql, [tw_stock_id])
+        except DataSourceError:
+            # stock_fundamentals 表不存在（如僅離線層未落地）→ 視為無財報，不中斷本標的。
+            warnings.append(f"stock.db 無 stock_fundamentals 表或查詢失敗，{tw_stock_id} 略過財報")
+            return None
+        if df.empty:
+            return None
+
+        row = df.iloc[0]
+
+        def _num(col: str) -> float | None:
+            v = row[col]
+            return None if pd.isna(v) else float(v)
+
+        rev = _num("revenue")
+        gp = _num("gross_profit")
+        ni = _num("net_income")
+        # 毛利率 / 淨利率：分母為正才算（避免 ÷0 / 負營收失真）。
+        gm = (gp / rev * 100.0) if (rev and rev > 0 and gp is not None) else None
+        nm = (ni / rev * 100.0) if (rev and rev > 0 and ni is not None) else None
+        return FinancialsSnapshot(
+            stock_id=str(row["stock_id"]),
+            roc_year=int(row["roc_year"]),
+            season=int(row["season"]),
+            eps=_num("eps"),
+            revenue_k=rev,
+            gross_margin_pct=gm,
+            net_margin_pct=nm,
         )
 
     def _fetch_news(

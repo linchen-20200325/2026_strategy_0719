@@ -234,10 +234,39 @@ def _chip_line(t) -> str:
     )
 
 
-def format_stock_card(result: CycleResult) -> str:
-    """單一標的盯盤卡：【代號】判讀 → 📊 技術（收/20MA/60MA/KD/RSI）→ 💰 籌碼（外資/投信/三大法人）。
+def _fin_line(f) -> str:
+    """最新季報：EPS / 營收（千元→億）/ 毛利率 / 淨利率（缺欄略過，全缺回空字串）。"""
+    if f is None:
+        return ""
+    parts: list[str] = []
+    if f.eps is not None:
+        parts.append(f"EPS {f.eps:g}")
+    if f.revenue_k is not None:
+        parts.append(f"營收 {f.revenue_k / 1e5:.1f}億")   # 千元 → 億（÷1e5）
+    if f.gross_margin_pct is not None:
+        parts.append(f"毛利率 {f.gross_margin_pct:.1f}%")
+    if f.net_margin_pct is not None:
+        parts.append(f"淨利率 {f.net_margin_pct:.1f}%")
+    if not parts:
+        return ""
+    return f"📈 {f.period_label}季報 " + " · ".join(parts)
 
-    資料缺席一律誠實呈現（判讀 abstain → 「資料不足」;技術缺 → 「—」;籌碼全缺 → 略過該行）。
+
+def _news_line(packet, news_summary: str | None) -> str:
+    """新聞：優先 AI 總結；無 AI（無 key/失敗）→ 退回頭條標題；皆無 → 空字串。"""
+    if news_summary:
+        return "📰 " + news_summary
+    if packet.news:
+        tops = "；".join(n.title for n in packet.news[:2])
+        return "📰 " + tops
+    return ""
+
+
+def format_stock_card(result: CycleResult, *, news_summary: str | None = None) -> str:
+    """單一標的盯盤卡：判讀 → 📊 技術 → 💰 籌碼 → 📰 新聞（AI 總結/頭條）→ 📈 最新季報。
+
+    資料缺席一律誠實呈現（判讀 abstain → 「資料不足」;技術缺 → 「—」;籌碼/新聞/財報缺 → 略過該行）。
+    news_summary 由推播端（multiuser）先以 Gemini 產好傳入；未傳則退回頭條標題（不杜撰）。
     """
     d = result.decision
     if d.abstained or d.final_score is None:
@@ -249,27 +278,42 @@ def format_stock_card(result: CycleResult) -> str:
     tech = result.packet.technical
     if tech is None:
         lines.append("📊 技術 —（stock.db 查無或缺值）")
-        return "\n".join(lines)
+    else:
+        lines.append("📊 技術 " + _tech_line(tech))
+        chip = _chip_line(tech)
+        if chip:
+            lines.append("💰 籌碼 " + chip)
 
-    lines.append("📊 技術 " + _tech_line(tech))
-    chip = _chip_line(tech)
-    if chip:
-        lines.append("💰 籌碼 " + chip)
+    news = _news_line(result.packet, news_summary)
+    if news:
+        lines.append(news)
+    fin = _fin_line(result.packet.financials)
+    if fin:
+        lines.append(fin)
     return "\n".join(lines)
 
 
 def format_watch_digest(
-    results: Sequence[CycleResult], *, day: str, title: str = "📈 個股盯盤"
+    results: Sequence[CycleResult],
+    *,
+    day: str,
+    title: str = "📈 個股盯盤",
+    news_summaries: dict[str, str] | None = None,
 ) -> str:
-    """全清單盯盤（對齊 LINE 盯盤 bot）：每檔一張卡（判讀＋技術＋籌碼），含指令頁尾。
+    """全清單盯盤（對齊 LINE 盯盤 bot）：每檔一張卡（判讀＋技術＋籌碼＋新聞＋財報），含指令頁尾。
 
     與 `format_bullish_digest`（只推利多榜）不同：本函式**逐檔全列**，即使中性/利空也列出，
     符合「每天固定收到自己清單狀態」的盯盤體驗。
+    news_summaries：{stock_id: AI 新聞總結}，由推播端先產好；某檔缺 → 該卡退回頭條標題。
     """
     head = f"{title} {day}"
     if not results:
         return f"{head}\n（清單為空）"
-    cards = [format_stock_card(r) for r in results]
+    summaries = news_summaries or {}
+    cards = [
+        format_stock_card(r, news_summary=summaries.get(r.decision.tw_stock_id))
+        for r in results
+    ]
     footer = "（僅供參考，非投資建議。指令：加/刪/清單）"
     return "\n\n".join([head, *cards, footer])
 
