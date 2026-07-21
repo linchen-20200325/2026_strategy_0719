@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from types import SimpleNamespace
 
@@ -151,11 +152,21 @@ def _news(n):
 
 def test_summarize_no_key_returns_none(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEYS", raising=False)
     assert ai_summary.summarize_stock_news("2330", _news(3)) is None
 
 
 def test_summarize_no_news_returns_none():
     assert ai_summary.summarize_stock_news("2330", [], api_key="k") is None
+
+
+def test_resolve_keys_parses_list_and_dedups():
+    # 逗號 / 空白混合分隔 + 去重保序
+    assert ai_summary._resolve_keys("a, b  c,a", None, lambda k: None) == ["a", "b", "c"]
+    # GEMINI_API_KEYS 優先於 GEMINI_API_KEY
+    env = {"GEMINI_API_KEYS": "k1 k2", "GEMINI_API_KEY": "solo"}
+    assert ai_summary._resolve_keys(None, None, env.get) == ["k1", "k2"]
+    assert ai_summary._resolve_keys(None, None, lambda k: None) == []
 
 
 def test_summarize_happy_path(monkeypatch):
@@ -190,3 +201,56 @@ def test_summarize_api_error_returns_none(monkeypatch):
 
     monkeypatch.setattr(ai_summary.urllib.request, "urlopen", boom)
     assert ai_summary.summarize_stock_news("2330", _news(2), api_key="k") is None
+
+
+def _ok_resp(text):
+    class _Resp:
+        def read(self): return json.dumps(
+            {"candidates": [{"content": {"parts": [{"text": text}]}}]}
+        ).encode()
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    return _Resp()
+
+
+def test_summarize_rotates_and_failsover(monkeypatch):
+    import urllib.error
+    monkeypatch.setattr(ai_summary, "_rr_offset", 0)   # 固定從第一把起，測試可判定
+    seen = []
+
+    def fake_urlopen(req, timeout=0):
+        key = req.full_url.split("key=")[1]
+        seen.append(key)
+        if key == "k1":
+            raise urllib.error.HTTPError(req.full_url, 429, "rate limit", {}, None)
+        return _ok_resp("需求強、偏多。")
+
+    monkeypatch.setattr(ai_summary.urllib.request, "urlopen", fake_urlopen)
+    out = ai_summary.summarize_stock_news("2330", _news(1), api_keys=["k1", "k2"])
+    assert out == "需求強、偏多。"
+    assert seen == ["k1", "k2"]      # 第一把 429 → 自動換第二把
+
+
+def test_summarize_round_robin_starts_next_key(monkeypatch):
+    monkeypatch.setattr(ai_summary, "_rr_offset", 0)
+    starts = []
+
+    def fake_urlopen(req, timeout=0):
+        starts.append(req.full_url.split("key=")[1])
+        return _ok_resp("ok")
+
+    monkeypatch.setattr(ai_summary.urllib.request, "urlopen", fake_urlopen)
+    ai_summary.summarize_stock_news("A", _news(1), api_keys=["k1", "k2"])
+    ai_summary.summarize_stock_news("B", _news(1), api_keys=["k1", "k2"])
+    assert starts == ["k1", "k2"]    # 兩次總結分別從不同把起 → 攤平負載
+
+
+def test_summarize_all_keys_fail_returns_none(monkeypatch):
+    import urllib.error
+    monkeypatch.setattr(ai_summary, "_rr_offset", 0)
+
+    def boom(req, timeout=0):
+        raise urllib.error.URLError("down")
+
+    monkeypatch.setattr(ai_summary.urllib.request, "urlopen", boom)
+    assert ai_summary.summarize_stock_news("2330", _news(1), api_keys=["k1", "k2", "k3"]) is None
