@@ -28,6 +28,8 @@ from config import (
     NIGHT_SMALL_MOVE_PCT,
     PMI_EXPANSION_LEVEL,
     PMI_REGIME_SPAN,
+    SENTIMENT_RAW_MAX,
+    SENTIMENT_RAW_MIN,
     SESSION_LABELS,
     YIELD_HEALTHY_PCT,
     YIELD_INVERSION_PCT,
@@ -35,7 +37,7 @@ from config import (
 
 from .contracts import Action, MacroReading, NewsItem, TwMacroReading, TwNightReading
 from .integration_agent import CycleResult
-from .numerics import clamp, linear_map
+from .numerics import linear_map
 
 
 @dataclass(frozen=True)
@@ -164,8 +166,8 @@ def _regime_word(score: float) -> str:
 
 
 def _sentiment_bull(mean: float) -> float:
-    """新聞情緒 mean ∈ [-1,1] → 偏多度 [0,1]（+1→1 / 0→0.5 / -1→0）。"""
-    return clamp(0.5 + mean / 2.0, 0.0, 1.0)
+    """新聞情緒 mean → 偏多度 [0,1]（範圍走 config SENTIMENT_RAW_MIN/MAX SSOT；+1→1 / 0→0.5 / -1→0）。"""
+    return linear_map(mean, SENTIMENT_RAW_MIN, SENTIMENT_RAW_MAX, 0.0, 1.0)
 
 
 def market_regime(
@@ -218,7 +220,10 @@ def market_regime(
             reasons.append(f"台股總經{_regime_word(tw_score)}（{'·'.join(tw_desc)}）")
 
     if night is not None and night.night_chg_pct is not None:
-        night_score = clamp(0.5 + night.night_chg_pct / (2.0 * NIGHT_BIG_MOVE_PCT), 0.0, 1.0)
+        # 夜盤漲跌 → 偏多度：-NIGHT_BIG→0 / 0→0.5 / +NIGHT_BIG→1（範圍走 config SSOT）。
+        night_score = linear_map(
+            night.night_chg_pct, -NIGHT_BIG_MOVE_PCT, NIGHT_BIG_MOVE_PCT, 0.0, 1.0
+        )
         dims.append(night_score)
         reasons.append(f"夜盤{_regime_word(night_score)}（{night.night_chg_pct:+.1f}%）")
 
