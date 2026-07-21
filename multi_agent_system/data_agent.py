@@ -226,8 +226,13 @@ class DataAggregationAgent:
             f"SELECT date, us_stock_id, close FROM {self.us_table} "
             "WHERE us_stock_id = ? ORDER BY date DESC LIMIT 1"
         )
-        with _connect_readonly(self.fund_db) as conn:
-            df = _read_sql(conn, sql, [us_stock_id])
+        try:
+            with _connect_readonly(self.fund_db) as conn:
+                df = _read_sql(conn, sql, [us_stock_id])
+        except DataSourceError:
+            # fund.db 無 us_market 表（離線層未落地美股連動）→ 視為無連動，不中斷本標的判讀。
+            warnings.append(f"fund.db 無 {self.us_table} 表或查詢失敗，{us_stock_id} 略過美股連動")
+            return None
         if df.empty:
             warnings.append(f"fund.db 查無 {us_stock_id} 的美股連動資料")
             return None
