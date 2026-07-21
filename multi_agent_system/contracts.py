@@ -155,13 +155,35 @@ class AgentVerdict:
 
 @dataclass(frozen=True)
 class MacroReading:
-    """總經原始輸入（殖利率利差 + CPI + 情緒），帶血緣與模擬旗標。"""
+    """總經原始輸入（殖利率利差 + CPI + 情緒），帶血緣與模擬旗標。
+
+    語意上為**美股 / 全球**總經（來源：my-Fund-dashboard / fund.db fred_macro）。
+    """
 
     yield_spread_pct: float     # 10Y - 2Y，單位百分點
     cpi_yoy_pct: float          # CPI 年增率，單位百分點
     source: str
     as_of: str
     is_simulated: bool          # True = 模擬/注入值，非真實 API（Fail Loud 透明化）
+
+
+@dataclass(frozen=True)
+class TwMacroReading:
+    """台股總經快照（來源：my-stock-dashboard / stock.db）。
+
+    * pmi           製造業採購經理人指數（指數點位，榮枯線 50；非百分比）。
+    * foreign_net_yi 外資買賣超（單位 **億元**，賣超為負；禁止與「張」混用）。
+
+    兩指標**各自獨立可缺**：查無 → None（顯示「資料不足」，不捏造，§1 Fail Loud），
+    不因單一指標缺席而讓整段台股情勢消失。
+    """
+
+    pmi: float | None
+    pmi_as_of: str | None       # PMI 歸屬月（YYYY-MM-DD）
+    foreign_net_yi: float | None
+    foreign_as_of: str | None   # 外資買賣超歸屬交易日
+    source: str
+    is_simulated: bool = False
 
 
 @dataclass(frozen=True)

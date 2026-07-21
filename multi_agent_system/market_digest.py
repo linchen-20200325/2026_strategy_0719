@@ -21,11 +21,12 @@ from config import (
     DIGEST_NEWS_TOP_N,
     DIGEST_SENTIMENT_BEARISH_MAX,
     DIGEST_SENTIMENT_BULLISH_MIN,
+    PMI_EXPANSION_LEVEL,
     SESSION_LABELS,
     YIELD_INVERSION_PCT,
 )
 
-from .contracts import Action, MacroReading, NewsItem
+from .contracts import Action, MacroReading, NewsItem, TwMacroReading
 from .integration_agent import CycleResult
 
 
@@ -91,6 +92,23 @@ def _macro_line(macro: MacroReading) -> str:
             f"CPI {macro.cpi_yoy_pct:.1f}%（{cpi}）{sim}")
 
 
+def _tw_macro_line(tw: TwMacroReading) -> str:
+    """台股總經一行：PMI 榮枯 + 外資買賣超（億元）。單一指標缺 → 誠實寫「資料不足」。"""
+    parts: list[str] = []
+    if tw.pmi is not None:
+        regime = "擴張" if tw.pmi >= PMI_EXPANSION_LEVEL else "收縮"
+        parts.append(f"PMI {tw.pmi:.1f}（{regime}）")
+    else:
+        parts.append("PMI 資料不足")
+    if tw.foreign_net_yi is not None:
+        flow = "買超" if tw.foreign_net_yi >= 0 else "賣超"
+        parts.append(f"外資 {tw.foreign_net_yi:+.0f} 億（{flow}）")
+    else:
+        parts.append("外資 資料不足")
+    sim = "（模擬）" if tw.is_simulated else ""
+    return f"📊 {' · '.join(parts)}{sim}"
+
+
 def _news_block(icon_label: str, stat: NewsStat) -> list[str]:
     if stat.count == 0 or stat.mean is None:
         return [f"{icon_label}：無資料（近日無相關新聞）"]
@@ -107,17 +125,27 @@ def build_market_digest(
     intl_news: NewsStat,
     tw_news: NewsStat,
     tally: WatchTally,
+    tw_macro: TwMacroReading | None = None,
 ) -> str:
-    """組一則市場快訊（mynews 風格 emoji 分區）。day 為 'MM/DD' 或 ISO 前綴。"""
+    """組一則市場快訊（mynews 風格 emoji 分區）。day 為 'MM/DD' 或 ISO 前綴。
+
+    * 國際情勢 = 美股/全球總經（macro：10Y-2Y 利差 + CPI）+ 外電情緒。
+    * 台股     = 台股總經（tw_macro：PMI + 外資，選填）+ 追蹤清單訊號統計 + 台股新聞情緒。
+      tw_macro 省略（None）時只是不顯示台股總經行,其餘照舊（向後相容）。
+    """
     label = SESSION_LABELS.get(session, session)
     lines = [
         f"🌐 市場快訊｜{label} {day}",
-        "━━ 國際情勢 ━━",
+        "━━ 國際情勢（美股 / 全球）━━",
         _macro_line(macro),
         *_news_block("📰 外電情緒", intl_news),
         "━━ 台股 ━━",
-        f"🇹🇼 追蹤 {tally.n} 檔 → 🟢利多 {tally.bullish} / 🟡觀望 {tally.hold} / 🔴偏空 {tally.bearish}",
     ]
+    if tw_macro is not None:
+        lines.append(_tw_macro_line(tw_macro))
+    lines.append(
+        f"🇹🇼 追蹤 {tally.n} 檔 → 🟢利多 {tally.bullish} / 🟡觀望 {tally.hold} / 🔴偏空 {tally.bearish}"
+    )
     if tally.bullish_names:
         lines.append(f"📈 利多：{'、'.join(tally.bullish_names)}")
     lines += _news_block("📰 台股新聞情緒", tw_news)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from multi_agent_system.contracts import Action, MacroReading, NewsItem
+from multi_agent_system.contracts import Action, MacroReading, NewsItem, TwMacroReading
 from multi_agent_system.market_digest import (
     NewsStat,
     build_market_digest,
@@ -12,6 +12,14 @@ from multi_agent_system.market_digest import (
     summarize_news,
     tally_watchlist,
 )
+
+
+def _tw_macro(pmi, foreign, *, simulated=False):
+    return TwMacroReading(
+        pmi=pmi, pmi_as_of="2026-06-01",
+        foreign_net_yi=foreign, foreign_as_of="2026-07-18",
+        source="test", is_simulated=simulated,
+    )
 
 
 def _news(title, s):
@@ -103,6 +111,47 @@ def test_build_digest_simulated_flag_and_no_data():
     assert "（模擬）" in digest
     assert "正常" in digest and "溫和" in digest
     assert "無資料" in digest                            # 國際新聞 Fail-Loud 誠實
+
+
+def test_build_digest_tw_macro_rendered():
+    # 台股總經（PMI 擴張 + 外資賣超）應出現在台股區塊。
+    digest = build_market_digest(
+        session="afternoon", day="07/19",
+        macro=_macro(0.4, 3.0),
+        intl_news=summarize_news([_news("Fed", -0.2)]),
+        tw_news=summarize_news([_news("台積電", 0.5)]),
+        tally=tally_watchlist([_res(Action.HOLD)]),
+        tw_macro=_tw_macro(55.3, -60.8),
+    )
+    assert "PMI 55.3（擴張）" in digest
+    assert "外資 -61 億（賣超）" in digest
+
+
+def test_build_digest_tw_macro_partial_and_contraction():
+    # PMI < 50 收縮 + 外資買超（正）；某指標缺 → 「資料不足」誠實（§1 Fail Loud）。
+    digest = build_market_digest(
+        session="morning", day="07/20",
+        macro=_macro(1.0, 2.0),
+        intl_news=NewsStat(0, None, []),
+        tw_news=NewsStat(0, None, []),
+        tally=tally_watchlist([_res(Action.HOLD)]),
+        tw_macro=_tw_macro(48.5, None),          # 收縮 + 外資缺
+    )
+    assert "PMI 48.5（收縮）" in digest
+    assert "外資 資料不足" in digest
+
+
+def test_build_digest_without_tw_macro_backward_compatible():
+    # 不傳 tw_macro（None）→ 不顯示台股總經行,其餘照舊。
+    digest = build_market_digest(
+        session="afternoon", day="07/19",
+        macro=_macro(0.4, 3.0),
+        intl_news=NewsStat(0, None, []),
+        tw_news=NewsStat(0, None, []),
+        tally=tally_watchlist([_res(Action.HOLD)]),
+    )
+    assert "📊" not in digest                    # 無台股總經行
+    assert "台股" in digest                       # 台股區塊仍在
 
 
 # ---------------------------------------------------------------- CLI 冒煙

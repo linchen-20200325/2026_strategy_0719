@@ -1,69 +1,111 @@
-# 多智能體投研 pipeline — GitHub Actions 定時排程（替代方案）
+# 多智能體投研 — 國際盤 + 台股「市場快訊」定時 broadcast（Phase 1 資料鏈消費端）
 #
-# ⚠️ 前提:此方式只有在「GitHub Actions runner 讀得到三個 DB」時才可行。
-#   若 stock.db / fund.db / news.db 在你的 NAS/本機（最常見）,runner 讀不到 →
-#   請改用 deploy/crontab.example 在 NAS 上跑。
-#   要用 Actions 的話,得先讓 DB 可及（例:上一步 job 從你的服務下載 DB 到 runner,
-#   或 DB 放在 runner 拿得到的物件儲存）。
+# 資料鏈（全在 GitHub Actions，無 NAS、無互動門）：
+#   my-fund-dashboard  → export_db.yml → fund.db  →（本 repo）data 分支
+#   my-stock-dashboard → export_db.yml → stock.db →（本 repo）data 分支
+#   mynews             → export_db.yml → news.db  →（本 repo）data 分支
+#        │                    │                    │
+#        └──────── 本 workflow checkout 三個 data 分支 ────────┘
+#                             │
+#              run_pipeline.py --market-digest（讀總經+新聞→判讀→組卡）
+#                             │
+#                    LINE broadcast 全體好友（國際情勢＋台股）
 #
-# 時區:cron 一律 UTC。台灣 = UTC+8。
-#   早上 07:30 TW = 前一日 23:30 UTC（故週日~四 0-4）；下午 16:30 TW = 當日 08:30 UTC（週一~五）。
+# 需要的 Secrets（本 repo → Settings → Secrets and variables → Actions）：
+#   DATA_REPO_TOKEN            —— GitHub PAT，對三個來源 repo 有 contents:read（讀 data 分支）。
+#   LINE_CHANNEL_ACCESS_TOKEN  —— 2026 專用 LINE bot 的 channel access token（broadcast 用）。
+#
+# 時區：cron 一律 UTC。台灣 = UTC+8。來源 export 於 UTC 21:00（TW 05:00）產出，
+#       本消費端排在其後，確保讀到當日最新資料。
 
-name: multi-agent-pipeline
+name: market-digest-broadcast
 
 on:
   schedule:
-    - cron: "30 23 * * 0-4"  # 07:30 TW（盤前）= 前一日 23:30 UTC，週日~四
-    - cron: "30 8 * * 1-5"   # 16:30 TW（收盤後）= 當日 08:30 UTC
-  workflow_dispatch:          # 也可手動觸發
+    - cron: "30 23 * * 0-4"  # 07:30 TW（盤前，國際盤收盤後）= 前一日 23:30 UTC，週日~四
+    - cron: "30 8 * * 1-5"   # 16:30 TW（台股收盤後）= 當日 08:30 UTC，週一~五
+  workflow_dispatch:
     inputs:
       session:
-        description: "morning / afternoon"
+        description: "morning（早盤前）/ afternoon（收盤後）"
         default: "morning"
 
+permissions:
+  contents: read
+
 jobs:
-  run:
+  broadcast:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout 2026（本系統）
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      # ---- 取三個來源 repo 的 data 分支（各含一顆 DB）----
+      - name: Checkout fund.db（my-fund-dashboard@data）
+        uses: actions/checkout@v4
+        with:
+          repository: linchen-20200325/my-fund-dashboard
+          ref: data
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+          path: _data/fund
+
+      - name: Checkout stock.db（my-stock-dashboard@data）
+        uses: actions/checkout@v4
+        with:
+          repository: linchen-20200325/my-stock-dashboard
+          ref: data
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+          path: _data/stock
+
+      - name: Checkout news.db（mynews@data）
+        uses: actions/checkout@v4
+        with:
+          repository: linchen-20200325/mynews
+          ref: data
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+          path: _data/news
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
 
-      - name: Install deps
-        run: pip install -r requirements.txt
-
-      # TODO: 若 DB 不在 repo,於此步把三個 DB 取到 runner（下載/掛載/還原快照）。
+      - name: Install deps（CLI 只需核心運算，免 streamlit）
+        run: pip install "pandas>=2.0,<4.0" "numpy>=1.24"
 
       - name: Decide session
         id: sess
         run: |
+          # 兩個 cron：morning 23:30 UTC（TW 07:30 盤前）；afternoon 08:30 UTC（TW 16:30 收盤後）。
+          # UTC 小時 >= 20 或 < 4 → 對應 TW 清晨 → morning；其餘 → afternoon。
+          H="$(date -u +%-H)"
           if [ -n "${{ github.event.inputs.session }}" ]; then
             echo "session=${{ github.event.inputs.session }}" >> "$GITHUB_OUTPUT"
-          elif [ "$(date -u +%-H)" -lt 3 ]; then
+          elif [ "$H" -ge 20 ] || [ "$H" -lt 4 ]; then
             echo "session=morning" >> "$GITHUB_OUTPUT"
           else
             echo "session=afternoon" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Run pipeline
-        env:
-          STOCK_DB: ${{ secrets.STOCK_DB_PATH }}
-          FUND_DB: ${{ secrets.FUND_DB_PATH }}
-          NEWS_DB: ${{ secrets.NEWS_DB_PATH }}
-          MACRO_SPREAD_PCT: ${{ vars.MACRO_SPREAD_PCT }}
-          MACRO_CPI_YOY_PCT: ${{ vars.MACRO_CPI_YOY_PCT }}
-          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
-          LINE_TO: ${{ secrets.LINE_TO }}
+      - name: Sanity check DB 檔存在
         run: |
-          # 設了 LINE secrets 才加 --line
-          LINE_FLAG=""
-          if [ -n "${LINE_CHANNEL_ACCESS_TOKEN}" ] && [ -n "${LINE_TO}" ]; then LINE_FLAG="--line"; fi
-          python run_pipeline.py --session "${{ steps.sess.outputs.session }}" $LINE_FLAG --output signals.json
+          for f in _data/fund/fund.db _data/stock/stock.db _data/news/news.db; do
+            if [ ! -f "$f" ]; then echo "::error::缺 $f（來源 export 尚未跑或 data 分支無此檔）"; exit 1; fi
+            echo "✅ $f ($(du -h "$f" | cut -f1))"
+          done
 
-      - name: Upload signals
-        uses: actions/upload-artifact@v4
-        with:
-          name: signals-${{ steps.sess.outputs.session }}
-          path: signals.json
+      - name: Broadcast 市場快訊
+        env:
+          FUND_DB: _data/fund/fund.db
+          STOCK_DB: _data/stock/stock.db
+          NEWS_DB: _data/news/news.db
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+        run: |
+          # 未設 LINE token（例如手動排練）→ 加 --dry-run 只印不推，避免 workflow 失敗。
+          DRY=""
+          if [ -z "${LINE_CHANNEL_ACCESS_TOKEN}" ]; then
+            echo "::warning::未設 LINE_CHANNEL_ACCESS_TOKEN → --dry-run 只預覽不推播"
+            DRY="--dry-run"
+          fi
+          python run_pipeline.py --session "${{ steps.sess.outputs.session }}" --market-digest $DRY

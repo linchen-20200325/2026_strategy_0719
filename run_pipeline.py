@@ -48,8 +48,29 @@ from multi_agent_system.pipeline import (
 logger = logging.getLogger("multi_agent_system.pipeline")
 
 
-def _build_macro_provider() -> MacroDataProvider:
-    """有環境變數 → 真實注入值;否則模擬情境並警告。"""
+def _build_macro_provider(fund_db: str | None = None) -> MacroDataProvider:
+    """美股/全球總經 provider,優先真實、失敗才降級（Fail-Loud 透明化 is_simulated）。
+
+    優先序：
+      1) fund.db（fred_macro）→ 真實利差 + CPI 年增率（is_simulated=False）。
+      2) 環境變數 MACRO_SPREAD_PCT + MACRO_CPI_YOY_PCT → 手動注入真實值。
+      3) 皆無 → 模擬中性情境（is_simulated=True）並印警語（不把模擬當實測）。
+    """
+    if fund_db:
+        from multi_agent_system.data_agent import DataSourceError
+        from multi_agent_system.macro_providers import DbMacroProvider
+
+        provider = DbMacroProvider(fund_db)
+        try:
+            reading = provider.get_reading()  # 立即觸發讀取以驗證;失敗才降級
+            logger.info(
+                "總經：讀取 fund.db 真實美股/全球總經（利差 %+.2f%% · CPI %.1f%% · as_of %s）",
+                reading.yield_spread_pct, reading.cpi_yoy_pct, reading.as_of,
+            )
+            return provider
+        except DataSourceError as exc:
+            logger.warning("fund.db 總經讀取失敗（%s）→ 降級 env / 模擬", exc)
+
     spread = os.environ.get("MACRO_SPREAD_PCT")
     cpi = os.environ.get("MACRO_CPI_YOY_PCT")
     if spread is not None and cpi is not None:
@@ -61,8 +82,8 @@ def _build_macro_provider() -> MacroDataProvider:
             is_simulated=False,
         )
     logger.warning(
-        "未設 MACRO_SPREAD_PCT / MACRO_CPI_YOY_PCT → 使用模擬中性總經情境"
-        "（is_simulated=True）。接 FRED 後改注入真實值。"
+        "未取得 fund.db 總經、亦未設 MACRO_SPREAD_PCT / MACRO_CPI_YOY_PCT → "
+        "使用模擬中性總經情境（is_simulated=True）。"
     )
     return SimulatedMacroProvider(yield_spread_pct=1.0, cpi_yoy_pct=2.5, scenario="neutral")
 
@@ -90,7 +111,7 @@ def _run_per_user(orchestrator: WorkflowOrchestrator, args) -> int:
     results = run_per_user_push(
         make_subscriber_store(local_path=args.subscribers),
         orchestrator,
-        _build_macro_provider(),
+        _build_macro_provider(orchestrator.data_agent.fund_db),
         channel_access_token=token,
         full_watch=True,
         dry_run=args.dry_run,
@@ -109,6 +130,8 @@ def _run_per_user(orchestrator: WorkflowOrchestrator, args) -> int:
 def _run_market_digest(orchestrator: WorkflowOrchestrator, args) -> int:
     """市場快訊（國際情勢 + 台股）→ broadcast 全體好友（同 mynews 主報告）。"""
     from config import INTL_NEWS_KEYWORDS, TW_MARKET_KEYWORDS
+    from multi_agent_system.data_agent import DataSourceError
+    from multi_agent_system.macro_db import read_tw_macro
     from multi_agent_system.market_digest import (
         build_market_digest,
         summarize_news,
@@ -121,18 +144,26 @@ def _run_market_digest(orchestrator: WorkflowOrchestrator, args) -> int:
         logger.error("市場快訊 broadcast 需 LINE_CHANNEL_ACCESS_TOKEN（或加 --dry-run 只預覽）")
         return 4
 
-    macro = _build_macro_provider()
+    agent = orchestrator.data_agent
+    macro = _build_macro_provider(agent.fund_db)   # 美股/全球：真實 fund.db 優先
     as_of = date.today()
     results = orchestrator.run_batch(
         [build_request(it, macro, as_of=as_of) for it in DEMO_WATCHLIST]
     )
-    agent = orchestrator.data_agent
     intl = summarize_news(agent.fetch_news(INTL_NEWS_KEYWORDS, as_of_date=as_of))
     tw = summarize_news(agent.fetch_news(TW_MARKET_KEYWORDS, as_of_date=as_of))
+
+    # 台股總經（PMI + 外資）：讀 stock.db;整段讀不到才略過台股總經行（不影響其餘）。
+    try:
+        tw_macro = read_tw_macro(agent.stock_db)
+    except DataSourceError as exc:
+        logger.warning("台股總經讀取失敗（%s）→ 快訊略過台股總經行", exc)
+        tw_macro = None
+
     digest = build_market_digest(
         session=args.session, day=as_of.strftime("%m/%d"),
         macro=macro.get_reading(), intl_news=intl, tw_news=tw,
-        tally=tally_watchlist(results),
+        tally=tally_watchlist(results), tw_macro=tw_macro,
     )
     print(digest)
     if args.dry_run:
@@ -194,7 +225,7 @@ def main(argv: list[str] | None = None) -> int:
     runner = PipelineRunner(
         orchestrator,
         DEMO_WATCHLIST,
-        _build_macro_provider(),
+        _build_macro_provider(db_paths["fund_db"]),
         db_paths=db_paths,
         notifier=ConsoleNotifier(),
         max_age_days=args.max_age_days,

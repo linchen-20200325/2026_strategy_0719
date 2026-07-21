@@ -8,7 +8,10 @@ Schema（對齊使用者規格）
     stock_technical(date, stock_id, close, rsi, upper_band, lower_band,   # my-stock-dashboard
                     ma20, ma60, kd_k, kd_d,
                     foreign_net_lots, trust_net_lots, total_net_lots)     # 均線/KD/籌碼(張)
+    macro_tw_pmi(date, pmi, label, source)                                # 台股 PMI（榮枯線 50）
+    institutional_flow(date, foreign_buy)                                 # 外資買賣超（億元，賣超為負）
     us_market(date, us_stock_id, close)                                   # my-Fund-dashboard
+    fred_macro(date, series_id, value)                                    # 美股/全球總經（利差 + CPI）
     news(date, title, content, sentiment_score)                          # mynews
 
 用法
@@ -39,12 +42,39 @@ _STOCK_ROWS = [
     ("2026-07-18", "2454", 1358.0, 76.0, 1366.0, 1186.0, 1298.0, 1251.0, 85.0, 79.0, -8120.0, -230.0, -9450.0),
 ]
 
+# 台股 PMI（指數點位，榮枯線 50）—— 最新 55.3 → 擴張。
+_TW_PMI_ROWS = [
+    # (date, pmi, label, source)
+    ("2026-05-01", 53.8, "中華經濟研究院 PMI（2026-05 官方公布）", "DEMO"),
+    ("2026-06-01", 55.3, "中華經濟研究院 PMI（2026-06 官方公布）", "DEMO"),
+]
+
+# 外資買賣超（億元，賣超為負）—— 最新 -60.8 億 → 賣超。
+_TW_INST_ROWS = [
+    # (date, foreign_buy)
+    ("2026-07-16", -48.3),
+    ("2026-07-17", 25.6),
+    ("2026-07-18", -60.8),
+]
+
 _US_ROWS = [
     # (date, us_stock_id, close)
     ("2026-07-16", "NVDA", 172.0),
     ("2026-07-17", "NVDA", 175.5),
     ("2026-07-18", "NVDA", 178.2),
     ("2026-07-18", "AMD", 168.0),
+]
+
+# 美股/全球總經（FRED series；DGS10/DGS2 日頻 %、CPIAUCSL 月頻指數點）。
+# 最新利差 = 4.55 − 4.12 = +0.43%（正常）；CPI YoY = (331.0/321.0 − 1)×100 ≈ 3.1%（溫和）。
+_FRED_ROWS = [
+    # (date, series_id, value)
+    ("2026-07-17", "DGS10", 4.58),
+    ("2026-07-18", "DGS10", 4.55),
+    ("2026-07-17", "DGS2", 4.15),
+    ("2026-07-18", "DGS2", 4.12),
+    ("2025-07-01", "CPIAUCSL", 321.0),   # 12 月前基期
+    ("2026-07-01", "CPIAUCSL", 331.0),   # 最新月
 ]
 
 _NEWS_ROWS = [
@@ -70,6 +100,15 @@ def _create_stock_db(path: str) -> None:
         conn.executemany(
             "INSERT INTO stock_technical VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", _STOCK_ROWS
         )
+        # 台股總經（PMI + 外資買賣超）—— 供市場快訊「台股情勢」。
+        conn.execute("DROP TABLE IF EXISTS macro_tw_pmi")
+        conn.execute(
+            "CREATE TABLE macro_tw_pmi (date TEXT, pmi REAL, label TEXT, source TEXT)"
+        )
+        conn.executemany("INSERT INTO macro_tw_pmi VALUES (?,?,?,?)", _TW_PMI_ROWS)
+        conn.execute("DROP TABLE IF EXISTS institutional_flow")
+        conn.execute("CREATE TABLE institutional_flow (date TEXT, foreign_buy REAL)")
+        conn.executemany("INSERT INTO institutional_flow VALUES (?,?)", _TW_INST_ROWS)
 
 
 def _create_fund_db(path: str) -> None:
@@ -80,6 +119,10 @@ def _create_fund_db(path: str) -> None:
             "date TEXT NOT NULL, us_stock_id TEXT NOT NULL, close REAL)"
         )
         conn.executemany("INSERT INTO us_market VALUES (?,?,?)", _US_ROWS)
+        # 美股/全球總經（利差 + CPI）—— 供市場快訊「國際情勢」+ 總經專家評分。
+        conn.execute("DROP TABLE IF EXISTS fred_macro")
+        conn.execute("CREATE TABLE fred_macro (date TEXT, series_id TEXT, value REAL)")
+        conn.executemany("INSERT INTO fred_macro VALUES (?,?,?)", _FRED_ROWS)
 
 
 def _create_news_db(path: str) -> None:
