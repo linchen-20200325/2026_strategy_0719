@@ -195,6 +195,23 @@ _VERDICT_LABEL: dict[Action, str] = {
 }
 
 
+# agent key → 中文短標（判讀理由露出用）。
+_AGENT_ZH: dict[str, str] = {
+    "macro": "總經", "technical": "技術", "fundamental": "基本", "allocation": "配置",
+}
+
+
+def _verdict_line(decision) -> str:
+    """判讀理由：4 專家評分（0~1）攤開，讓 Final 可追溯（規則式，非 LLM）。缺專家略過。"""
+    verdicts = decision.verdicts or {}
+    parts: list[str] = []
+    for key in ("macro", "technical", "fundamental", "allocation"):
+        v = verdicts.get(key)
+        if v is not None and v.score is not None:
+            parts.append(f"{_AGENT_ZH[key]}{v.score:.2f}")
+    return "🧮 判讀 " + " · ".join(parts) if parts else ""
+
+
 def _fmt_price(v: float) -> str:
     """價格顯示：四捨五入 2 位並去尾零（960.0→960、68.90→68.9）。"""
     return f"{round(float(v), 2):g}"
@@ -272,6 +289,10 @@ def format_stock_card(result: CycleResult) -> str:
     else:
         head = f"【{d.tw_stock_id}】{_VERDICT_LABEL[d.action]}　Final={d.final_score:.2f}"
     lines = [head]
+    if not (d.abstained or d.final_score is None):
+        vline = _verdict_line(d)
+        if vline:
+            lines.append(vline)
 
     tech = result.packet.technical
     if tech is None:

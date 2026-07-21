@@ -160,6 +160,12 @@ PMI_EXPANSION_LEVEL: float = 50.0
 NIGHT_BIG_MOVE_PCT: float = 1.0     # |chg%| >= 1.0 → 大漲 / 大跌
 NIGHT_SMALL_MOVE_PCT: float = 0.2   # |chg%| >= 0.2 → 小漲 / 小跌；之間 → 持平
 
+# 大盤判讀（market_digest.market_regime 的規則式綜合解讀，非 LLM）——
+# 綜合 總經 + 台股總經 + 夜盤 + 美股/台股新聞情緒 → 各面向映射偏多度 ∈[0,1]，等權平均。
+MARKET_REGIME_BULL_MIN: float = 0.60   # 綜合偏多度 >= → 偏多
+MARKET_REGIME_BEAR_MAX: float = 0.40   # <= → 偏空；之間 → 中性
+PMI_REGIME_SPAN: float = 5.0           # PMI 以榮枯線 ±SPAN 映射偏多度（45→0 / 55→1）
+
 # session 顯示標籤（runner 彙整 digest 與 market digest 共用 → SSOT，勿各自寫 map）。
 SESSION_LABELS: dict[str, str] = {"morning": "早盤前", "afternoon": "收盤後"}
 

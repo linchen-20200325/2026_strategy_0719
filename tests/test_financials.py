@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 from multi_agent_system.contracts import (
     Action,
+    AgentVerdict,
     DataPacket,
     FinancialsSnapshot,
     NewsItem,
@@ -108,9 +109,10 @@ def _packet(**kw):
     return DataPacket(**base)
 
 
-def _result(packet, action=Action.ADD, score=0.7):
+def _result(packet, action=Action.ADD, score=0.7, verdicts=None):
     dec = SimpleNamespace(
-        tw_stock_id=packet.tw_stock_id, action=action, final_score=score, abstained=False
+        tw_stock_id=packet.tw_stock_id, action=action, final_score=score,
+        abstained=False, verdicts=verdicts or {},
     )
     return SimpleNamespace(decision=dec, packet=packet)
 
@@ -141,3 +143,15 @@ def test_card_no_news_no_news_line():
     pkt = _packet(technical=_tech())
     card = format_stock_card(_result(pkt))
     assert "📰" not in card
+
+
+def test_card_shows_verdict_breakdown():
+    # 判讀理由：4 專家評分攤開（規則式，非 LLM），讓 Final 可追溯。
+    v = {
+        "macro": AgentVerdict("MacroAgent", True, 0.38, "r"),
+        "technical": AgentVerdict("TechnicalAgent", True, 0.69, "r"),
+        "fundamental": AgentVerdict("FundamentalAgent", True, 1.0, "r"),
+        "allocation": AgentVerdict("AllocationAgent", True, 0.70, "r"),
+    }
+    card = format_stock_card(_result(_packet(technical=_tech()), verdicts=v))
+    assert "🧮 判讀 總經0.38 · 技術0.69 · 基本1.00 · 配置0.70" in card
