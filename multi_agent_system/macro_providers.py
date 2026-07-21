@@ -9,7 +9,8 @@
 `is_simulated` 旗標與 `source` 血緣：
 * `StaticMacroProvider`  — 呼叫端注入「真實」數值（例如已從 FRED 抓好），is_simulated=False。
 * `SimulatedMacroProvider` — 明確標示為模擬情境（Demo / 壓力測試），is_simulated=True。
-* `FredMacroProvider`     — 真實 FRED 介接的骨架，尚未接線時 raise（不回假值）。
+* `DbMacroProvider`      — 讀 fund.db fred_macro 的**真實**美股/全球總經（10Y-2Y 利差 + CPI 年增率）。
+* `FredMacroProvider`     — 真實 FRED 直連介接的骨架，尚未接線時 raise（不回假值）。
 
 如此既滿足「可模擬跑通」，又不欺騙下游把模擬值誤當實測值。
 """
@@ -77,6 +78,28 @@ class SimulatedMacroProvider(StaticMacroProvider):
             source=f"SIMULATED:{scenario}",
             is_simulated=True,
         )
+
+
+class DbMacroProvider:
+    """從 fund.db（fred_macro）讀**真實**美股/全球總經（10Y-2Y 利差 + CPI 年增率）。
+
+    * is_simulated=False（真實離線層資料，非模擬）。
+    * 讀取**延遲**到 `get_reading()` 首呼並快取——避免 import 時就拉 sqlite/契約鏈，
+      對「只要 WatchItem」的 NAS 輕量 caller 友善（同 pipeline 惰性載入精神）。
+    * 讀取失敗會 raise `DataSourceError`（Fail-Loud）；是否降級由呼叫端決定
+      （run_pipeline._build_macro_provider：真實讀不到才退回 env / 模擬並印警語）。
+    """
+
+    def __init__(self, fund_db_path: str) -> None:
+        self._fund_db_path = fund_db_path
+        self._cached: MacroReading | None = None
+
+    def get_reading(self) -> MacroReading:
+        if self._cached is None:
+            from .macro_db import read_us_macro
+
+            self._cached = read_us_macro(self._fund_db_path)
+        return self._cached
 
 
 class FredMacroProvider:

@@ -4,14 +4,37 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from multi_agent_system.contracts import Action, MacroReading, NewsItem
+from multi_agent_system.contracts import (
+    Action,
+    MacroReading,
+    NewsItem,
+    TwMacroReading,
+    TwNightReading,
+)
 from multi_agent_system.market_digest import (
     NewsStat,
     build_market_digest,
+    night_regime,
     sentiment_label,
     summarize_news,
     tally_watchlist,
 )
+
+
+def _night(oi=12480.0, close=22150.0, pts=85.0, pct=0.385, *, simulated=False):
+    return TwNightReading(
+        foreign_fut_oi_lots=oi, fut_oi_as_of="2026-07-18",
+        night_close=close, night_chg_pts=pts, night_chg_pct=pct, night_as_of="2026-07-18",
+        source="test", is_simulated=simulated,
+    )
+
+
+def _tw_macro(pmi, foreign, *, simulated=False):
+    return TwMacroReading(
+        pmi=pmi, pmi_as_of="2026-06-01",
+        foreign_net_yi=foreign, foreign_as_of="2026-07-18",
+        source="test", is_simulated=simulated,
+    )
 
 
 def _news(title, s):
@@ -103,6 +126,113 @@ def test_build_digest_simulated_flag_and_no_data():
     assert "（模擬）" in digest
     assert "正常" in digest and "溫和" in digest
     assert "無資料" in digest                            # 國際新聞 Fail-Loud 誠實
+
+
+def test_build_digest_tw_macro_rendered():
+    # 台股總經（PMI 擴張 + 外資賣超）應出現在台股區塊。
+    digest = build_market_digest(
+        session="afternoon", day="07/19",
+        macro=_macro(0.4, 3.0),
+        intl_news=summarize_news([_news("Fed", -0.2)]),
+        tw_news=summarize_news([_news("台積電", 0.5)]),
+        tally=tally_watchlist([_res(Action.HOLD)]),
+        tw_macro=_tw_macro(55.3, -60.8),
+    )
+    assert "PMI 55.3（擴張）" in digest
+    assert "外資 -61 億（賣超）" in digest
+
+
+def test_build_digest_tw_macro_partial_and_contraction():
+    # PMI < 50 收縮 + 外資買超（正）；某指標缺 → 「資料不足」誠實（§1 Fail Loud）。
+    digest = build_market_digest(
+        session="morning", day="07/20",
+        macro=_macro(1.0, 2.0),
+        intl_news=NewsStat(0, None, []),
+        tw_news=NewsStat(0, None, []),
+        tally=tally_watchlist([_res(Action.HOLD)]),
+        tw_macro=_tw_macro(48.5, None),          # 收縮 + 外資缺
+    )
+    assert "PMI 48.5（收縮）" in digest
+    assert "外資 資料不足" in digest
+
+
+def test_night_regime_five_classes():
+    assert night_regime(1.5) == "大漲，隔日偏多開高"
+    assert night_regime(0.4) == "小漲，隔日偏多"
+    assert night_regime(0.05) == "持平，隔日開平"
+    assert night_regime(-0.4) == "小跌，隔日偏空"
+    assert night_regime(-1.5) == "大跌，隔日偏空開低"
+
+
+def test_build_digest_night_rendered():
+    digest = build_market_digest(
+        session="morning", day="07/21",
+        macro=_macro(0.4, 3.0),
+        intl_news=NewsStat(0, None, []),
+        tw_news=NewsStat(0, None, []),
+        tally=tally_watchlist([_res(Action.HOLD)]),
+        night=_night(oi=12480.0, close=22150.0, pts=85.0, pct=0.385),
+    )
+    assert "台指期外資留倉 +12,480 口（偏多）" in digest
+    assert "台指夜盤 22150" in digest
+    assert "小漲，隔日偏多" in digest
+
+
+def test_build_digest_night_oi_only_and_short_bias():
+    # 只有期貨留倉（夜盤缺）+ 淨空 → 偏空；夜盤行不出現。
+    digest = build_market_digest(
+        session="morning", day="07/21",
+        macro=_macro(0.4, 3.0),
+        intl_news=NewsStat(0, None, []),
+        tw_news=NewsStat(0, None, []),
+        tally=tally_watchlist([_res(Action.HOLD)]),
+        night=_night(oi=-3300.0, close=None, pts=None, pct=None),
+    )
+    assert "台指期外資留倉 -3,300 口（偏空）" in digest
+    assert "台指夜盤" not in digest
+
+
+def test_build_digest_ai_read_section():
+    digest = build_market_digest(
+        session="morning", day="07/21",
+        macro=_macro(0.4, 3.0), intl_news=NewsStat(0, None, []), tw_news=NewsStat(0, None, []),
+        tally=tally_watchlist([_res(Action.HOLD)]),
+        ai_read="綜合來看國際偏空、台股中性。",
+    )
+    assert "🧠 AI 解讀" in digest and "綜合來看國際偏空、台股中性。" in digest
+
+
+def test_build_digest_without_ai_read_backward_compatible():
+    digest = build_market_digest(
+        session="morning", day="07/21",
+        macro=_macro(0.4, 3.0), intl_news=NewsStat(0, None, []), tw_news=NewsStat(0, None, []),
+        tally=tally_watchlist([_res(Action.HOLD)]),
+    )
+    assert "🧠" not in digest          # 未傳 ai_read → 無 AI 解讀段
+
+
+def test_build_digest_without_night_backward_compatible():
+    digest = build_market_digest(
+        session="morning", day="07/21",
+        macro=_macro(0.4, 3.0),
+        intl_news=NewsStat(0, None, []),
+        tw_news=NewsStat(0, None, []),
+        tally=tally_watchlist([_res(Action.HOLD)]),
+    )
+    assert "🌙" not in digest      # 未傳 night → 無夜盤行
+
+
+def test_build_digest_without_tw_macro_backward_compatible():
+    # 不傳 tw_macro（None）→ 不顯示台股總經行,其餘照舊。
+    digest = build_market_digest(
+        session="afternoon", day="07/19",
+        macro=_macro(0.4, 3.0),
+        intl_news=NewsStat(0, None, []),
+        tw_news=NewsStat(0, None, []),
+        tally=tally_watchlist([_res(Action.HOLD)]),
+    )
+    assert "📊" not in digest                    # 無台股總經行
+    assert "台股" in digest                       # 台股區塊仍在
 
 
 # ---------------------------------------------------------------- CLI 冒煙

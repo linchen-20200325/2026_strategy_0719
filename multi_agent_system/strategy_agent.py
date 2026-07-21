@@ -7,8 +7,11 @@
 
 計算式
 ------
-    Final Score = w_macro * S_macro + w_tech * S_tech + w_alloc * S_alloc
-    （w = 總經 0.30 / 技術 0.50 / 配置 0.20，SSOT: config.FUSION_WEIGHTS）
+    Final Score = Σ_k w_k * S_k / Σ_k w_k      （k ∈ 可用專家，缺者不計 → 重新歸一化）
+    （w = 總經 0.24 / 技術 0.40 / 基本面 0.20 / 配置 0.16，SSOT: config.FUSION_WEIGHTS）
+
+    「基本面」為**選填專家**：macro:technical:allocation 維持原 3:5:2 比例，故某標的無財報
+    （ETF/基金）時重新歸一化會**精確還原** 0.30/0.50/0.20 —— 既有行為不變，基本面只在有資料時加權。
 
     Final Score ∈ [0,1] → 行動（含下界門檻，SSOT: config）：
         >= 0.80 強烈買進 Strong Buy
@@ -49,8 +52,13 @@ from .contracts import (
 
 AGENT_NAME = "StrategyAgent"
 
-# 融合順序固定，對齊 config.FUSION_WEIGHTS 的鍵。
-_WEIGHT_KEYS = ("macro", "technical", "allocation")
+# 融合順序（對齊 config.FUSION_WEIGHTS 的鍵）。基本面為選填，其餘三者為必需。
+_ALL_KEYS = ("macro", "technical", "fundamental", "allocation")
+_REQUIRED_KEYS = ("macro", "technical", "allocation")
+
+
+def _ok(v: AgentVerdict) -> bool:
+    return v.available and v.score is not None
 
 
 class StrategyAgent:
@@ -65,19 +73,26 @@ class StrategyAgent:
         macro: AgentVerdict,
         technical: AgentVerdict,
         allocation: AgentVerdict,
+        fundamental: AgentVerdict | None = None,
     ) -> FinalDecision:
-        verdicts = {"macro": macro, "technical": technical, "allocation": allocation}
+        # 基本面選填：未提供 → 視為缺席（不 abstain，退回原三專家歸一化）。
+        if fundamental is None:
+            fundamental = AgentVerdict.unavailable("FundamentalAgent", "未提供基本面評分")
+        verdicts = {
+            "macro": macro, "technical": technical,
+            "fundamental": fundamental, "allocation": allocation,
+        }
 
-        # --- 缺料檢查 ---
-        missing = [k for k, v in verdicts.items() if not v.available or v.score is None]
-        available = [k for k in _WEIGHT_KEYS if k not in missing]
+        # --- 缺料檢查：只有「必需」專家缺才會 abstain；基本面缺不阻斷 ---
+        missing_required = [k for k in _REQUIRED_KEYS if not _ok(verdicts[k])]
+        available = [k for k in _ALL_KEYS if _ok(verdicts[k])]
         risk_control_triggered = bool(
             allocation.available
             and allocation.diagnostics.get("risk_control_triggered", False)
         )
 
-        # abstain 條件：(a) 要求全員到齊卻有缺；(b) 全員皆缺（無論模式）。
-        if (self.require_all_experts and missing) or not available:
+        # abstain 條件：(a) 要求全員到齊卻有必需缺；(b) 完全無可用專家。
+        if (self.require_all_experts and missing_required) or not available:
             return FinalDecision(
                 tw_stock_id=tw_stock_id,
                 action=Action.HOLD,
@@ -86,7 +101,7 @@ class StrategyAgent:
                 risk_control_triggered=risk_control_triggered,
                 verdicts=verdicts,
                 rationale=(
-                    f"⚠️ 資料不足，暫停決策 (abstain)：缺少 {missing} 專家評分。"
+                    f"⚠️ 資料不足，暫停決策 (abstain)：缺少 {missing_required} 專家評分。"
                     "依 Fail-Loud 原則不臆造分數。"
                 ),
             )
@@ -145,7 +160,9 @@ class StrategyAgent:
         risk_control: bool,
         overridden: bool,
     ) -> str:
-        partial = len(available) < len(_WEIGHT_KEYS)
+        # partial：有「必需」專家缺席才算（選填的基本面缺席不算 → 保持既有三專家輸出不變）。
+        partial = any(k not in available for k in _REQUIRED_KEYS)
+        total_w = math.fsum(FUSION_WEIGHTS[k] for k in available)
         head = f"Final Score = {final_score:.3f} → {action.value}"
         if partial:
             head += "（partial：僅就可用專家重新歸一化）"
@@ -153,12 +170,19 @@ class StrategyAgent:
         for key, label in (
             ("macro", "總經"),
             ("technical", "技術"),
+            ("fundamental", "基本面"),
             ("allocation", "配置"),
         ):
             v = verdicts[key]
-            w = FUSION_WEIGHTS[key]
-            score_txt = "N/A" if v.score is None else f"{v.score:.3f}"
-            lines.append(f"  ├ {label}(w={w:.0%}, 分={score_txt})：{v.reason}")
+            if key == "fundamental" and key not in available:
+                continue   # 選填專家缺席 → 不列（既有三專家卡片輸出完全不變）
+            if key in available:
+                wt = f"{FUSION_WEIGHTS[key] / total_w:.0%}"   # 有效（重新歸一化後）權重
+                score_txt = f"{v.score:.3f}"
+            else:
+                wt = f"{FUSION_WEIGHTS[key]:.0%}"             # 必需但缺（partial）→ 原始權重 + N/A
+                score_txt = "N/A"
+            lines.append(f"  ├ {label}(w={wt}, 分={score_txt})：{v.reason}")
         if risk_control:
             note = "，已硬性下修至『適度減碼』" if overridden else ""
             lines.append(f"  └ 🚨 集中度風控生效{note}")

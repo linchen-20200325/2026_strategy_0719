@@ -13,11 +13,14 @@ from __future__ import annotations
 # =============================================================================
 # 1. 決策融合 (Strategy Agent) — 三專家加權
 # =============================================================================
-# 使用者指定權重：總經 30% / 技術 50% / 配置 20%（總和必為 1.0）。
+# 融合權重（總和必為 1.0）。加入「基本面」專家後，macro:technical:allocation 仍維持
+# 原 3:5:2 比例（0.24:0.40:0.16），故當某標的**無基本面資料**時，就可用專家重新歸一化
+# 會精確還原成原本的 0.30/0.50/0.20 —— ETF/查無財報者行為不變，基本面只在有資料時加權。
 FUSION_WEIGHTS: dict[str, float] = {
-    "macro": 0.30,
-    "technical": 0.50,
-    "allocation": 0.20,
+    "macro": 0.24,
+    "technical": 0.40,
+    "fundamental": 0.20,
+    "allocation": 0.16,
 }
 
 # Final Score ∈ [0,1] → 五大交易行動的「含下界」門檻。
@@ -53,18 +56,50 @@ CPI_TARGET_PCT: float = 2.0         # <= 2% (Fed 目標) -> CPI 分量 = 1
 CPI_HOT_PCT: float = 5.0            # >= 5% (過熱) -> CPI 分量 = 0
 
 # =============================================================================
+# 2b. 基本面專家 (Fundamental Agent) — 財報品質 + 月營收動能
+# =============================================================================
+# 基本面得分 = 毛利率 / 淨利率 / 月營收 YoY 三分量加權（皆映射至 [0,1]，1=最佳）。
+# 月營收缺（需 FINMIND_TOKEN 才落地）時於 agent 內重新歸一化（只用毛利+淨利）。
+FUNDAMENTAL_SUBWEIGHTS: dict[str, float] = {
+    "gross_margin": 0.30,
+    "net_margin": 0.40,
+    "revenue_yoy": 0.30,
+}
+
+# 各分量線性映射區間（單位 %）。x <= LOW → 0 分；x >= HIGH → 1 分；中間線性。
+GROSS_MARGIN_LOW_PCT: float = 0.0
+GROSS_MARGIN_HIGH_PCT: float = 40.0     # 毛利率 40% 視為優異
+NET_MARGIN_LOW_PCT: float = 0.0
+NET_MARGIN_HIGH_PCT: float = 20.0       # 淨利率 20% 視為優異
+REVENUE_YOY_LOW_PCT: float = -20.0      # 月營收年減 20% → 0 分
+REVENUE_YOY_HIGH_PCT: float = 30.0      # 月營收年增 30% → 1 分
+
+# =============================================================================
 # 3. 技術線型專家 (Technical Agent) — 布林通道 + RSI
 # =============================================================================
-# 技術面得分方向：越「便宜/超賣」得分越高（利於買進）；越「昂貴/超買」得分越低。
+# 技術面得分：多因子（便宜/均值回歸 + 趨勢/動能/籌碼）綜合，各子分量 [0,1]，越高越偏多。
+# 全部子分量都用 my-stock 已 export 的原始欄位（close/RSI/布林/MA20/MA60/KD/三大法人籌碼）——
+# 判斷在 2026 做，來源只出資料。缺欄（舊 stock.db / ETF）→ 該子分量不計、重新歸一化。
+# 向後相容鐵則：percent_b 與 rsi 同權重 → 只有這兩者時歸一化後 = 原本 0.5/0.5，行為不變。
 TECH_SUBWEIGHTS: dict[str, float] = {
-    "percent_b": 0.50,   # 布林 %B 位階
-    "rsi": 0.50,         # RSI 動能
+    "percent_b": 0.20,   # 布林 %B 位階（便宜度）
+    "rsi": 0.20,         # RSI 動能（便宜度）
+    "ma_align": 0.25,    # 均線排列（close vs MA20 vs MA60；趨勢）
+    "kd": 0.15,          # KD（黃金交叉 + 低檔空間；動能）
+    "chip": 0.20,        # 三大法人買賣超（資金流向）
 }
 
 RSI_MIN: float = 0.0
 RSI_MAX: float = 100.0
 RSI_OVERSOLD: float = 30.0    # RSI <= 30 視為超賣（便宜）
 RSI_OVERBOUGHT: float = 70.0  # RSI >= 70 視為超買（昂貴）
+
+# KD 指標（0~100）超買/超賣，供 KD 子分量的「低檔空間」線性映射。
+KD_OVERBOUGHT: float = 80.0
+KD_OVERSOLD: float = 20.0
+# 三大法人淨買賣超（張）正規化尺度：chip 子分量 = 0.5 + 0.5·tanh(淨張 / 此值)。
+# 3000 張 ≈ 中型股「有感」單日法人買賣超；tanh 飽和 → 極端量不會爆表。
+CHIP_SCALE_LOTS: float = 3000.0
 
 # 布林通道標準差倍數 k（Bollinger 原始設定 n=20, k=2）。僅供文件/校驗參考，
 # 本系統假設上/下軌已由 my-stock-dashboard 上游算好，不在此重算。
@@ -116,6 +151,15 @@ DIGEST_SENTIMENT_BULLISH_MIN: float = 0.15   # >= → 偏多
 DIGEST_SENTIMENT_BEARISH_MAX: float = -0.15  # <= → 偏空（之間為中性）
 DIGEST_NEWS_TOP_N: int = 3                    # 摘要列出的頭條數上限
 
+# 台股總經（stock.db）判讀門檻 —— 市場快訊「台股情勢」用。
+# PMI（製造業採購經理人指數，指數點位，非百分比）：>= 50 擴張 / < 50 收縮（榮枯線）。
+PMI_EXPANSION_LEVEL: float = 50.0
+# 外資買賣超（stock.db institutional_flow，單位 億元）：sign 即語意（>0 買超 / <0 賣超），無需門檻。
+
+# 台指夜盤漲跌分類（相對日盤收盤 %）—— 盤前「隔日開盤方向」判讀（對照 kevin801221 repo 五分類）。
+NIGHT_BIG_MOVE_PCT: float = 1.0     # |chg%| >= 1.0 → 大漲 / 大跌
+NIGHT_SMALL_MOVE_PCT: float = 0.2   # |chg%| >= 0.2 → 小漲 / 小跌；之間 → 持平
+
 # session 顯示標籤（runner 彙整 digest 與 market digest 共用 → SSOT，勿各自寫 map）。
 SESSION_LABELS: dict[str, str] = {"morning": "早盤前", "afternoon": "收盤後"}
 
@@ -133,6 +177,7 @@ def _validate_config() -> None:
     for name, weights in (
         ("FUSION_WEIGHTS", FUSION_WEIGHTS),
         ("MACRO_SUBWEIGHTS", MACRO_SUBWEIGHTS),
+        ("FUNDAMENTAL_SUBWEIGHTS", FUNDAMENTAL_SUBWEIGHTS),
         ("TECH_SUBWEIGHTS", TECH_SUBWEIGHTS),
     ):
         total = math.fsum(weights.values())

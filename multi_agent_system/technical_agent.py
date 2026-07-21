@@ -39,6 +39,9 @@ from __future__ import annotations
 import math
 
 from config import (
+    CHIP_SCALE_LOTS,
+    KD_OVERBOUGHT,
+    KD_OVERSOLD,
     RSI_MAX,
     RSI_MIN,
     RSI_OVERBOUGHT,
@@ -50,6 +53,41 @@ from .contracts import AgentVerdict, TechnicalSnapshot
 from .numerics import clamp, isclose, linear_map
 
 AGENT_NAME = "TechnicalAgent"
+
+
+def _ma_align_score(snap: TechnicalSnapshot) -> float | None:
+    """均線排列 [0,1]：命中數/3，命中 = {close>MA20, close>MA60, MA20>MA60}（趨勢強度）。
+
+    MA20/MA60 任一缺（舊 stock.db / ETF）或非有限 → None（不計入，重新歸一化）。
+    """
+    if snap.ma20 is None or snap.ma60 is None:
+        return None
+    if not (math.isfinite(snap.close) and math.isfinite(snap.ma20) and math.isfinite(snap.ma60)):
+        return None
+    hits = (snap.close > snap.ma20) + (snap.close > snap.ma60) + (snap.ma20 > snap.ma60)
+    return hits / 3.0
+
+
+def _kd_score(snap: TechnicalSnapshot) -> float | None:
+    """KD [0,1] = 0.5·(K>D 黃金交叉) + 0.5·(K 低檔空間)。K/D 缺或非有限 → None。"""
+    if snap.kd_k is None or snap.kd_d is None:
+        return None
+    if not (math.isfinite(snap.kd_k) and math.isfinite(snap.kd_d)):
+        return None
+    cross = 1.0 if snap.kd_k > snap.kd_d else 0.0
+    room = linear_map(snap.kd_k, KD_OVERBOUGHT, KD_OVERSOLD, 0.0, 1.0)  # K 低 → 空間大 → 高分
+    return 0.5 * cross + 0.5 * room
+
+
+def _chip_score(snap: TechnicalSnapshot) -> float | None:
+    """三大法人籌碼 [0,1] = 0.5 + 0.5·tanh(淨張 / CHIP_SCALE_LOTS)。買超>0.5 / 賣超<0.5 / 飽和。
+
+    total_net_lots 缺（舊 stock.db / ETF）或非有限 → None（不計入）。
+    """
+    lots = snap.total_net_lots
+    if lots is None or not math.isfinite(lots):
+        return None
+    return 0.5 + 0.5 * math.tanh(lots / CHIP_SCALE_LOTS)
 
 
 class TechnicalAnalysisAgent:
@@ -90,14 +128,28 @@ class TechnicalAnalysisAgent:
             cheap_rsi = linear_map(rsi_used, RSI_OVERSOLD, RSI_OVERBOUGHT, 1.0, 0.0)
             diagnostics["rsi"] = round(rsi_used, 4)
 
+        # ---------- 加厚子分量（均線排列 / KD / 三大法人籌碼；資料由 my-stock 已 export，判斷在此）----------
+        ma_score = _ma_align_score(snap)
+        if ma_score is not None:
+            diagnostics["ma_align"] = round(ma_score, 4)
+        kd_sc = _kd_score(snap)
+        if kd_sc is not None:
+            diagnostics["kd"] = round(kd_sc, 4)
+        chip_sc = _chip_score(snap)
+        if chip_sc is not None:
+            diagnostics["chip"] = round(chip_sc, 4)
+
         # ---------- 融合（缺子分量則重新歸一化）----------
-        w_pctb = TECH_SUBWEIGHTS["percent_b"]
-        w_rsi = TECH_SUBWEIGHTS["rsi"]
         parts: list[tuple[float, float]] = []  # (weight, subscore)
-        if cheap_pctb is not None:
-            parts.append((w_pctb, cheap_pctb))
-        if cheap_rsi is not None:
-            parts.append((w_rsi, cheap_rsi))
+        for key, sub in (
+            ("percent_b", cheap_pctb),
+            ("rsi", cheap_rsi),
+            ("ma_align", ma_score),
+            ("kd", kd_sc),
+            ("chip", chip_sc),
+        ):
+            if sub is not None:
+                parts.append((TECH_SUBWEIGHTS[key], sub))
 
         if not parts:
             return AgentVerdict.unavailable(

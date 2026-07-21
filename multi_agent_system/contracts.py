@@ -85,6 +85,30 @@ class UsLinkSnapshot:
 
 
 @dataclass(frozen=True)
+class FinancialsSnapshot:
+    """個股最新一期季報（來源：my-stock-dashboard / stock.db stock_fundamentals）。
+
+    單位鐵則：金額欄=**千元**、eps=元、margin=%。roc_year 為**民國年**（+1911=西元）。
+    金額 / margin 可缺（None → 顯示時略過該欄，不捏造，§1 Fail Loud）。
+    """
+
+    stock_id: str
+    roc_year: int
+    season: int
+    eps: float | None
+    revenue_k: float | None            # 營收（千元）
+    gross_margin_pct: float | None     # 毛利率 %（gross_profit / revenue）
+    net_margin_pct: float | None       # 淨利率 %（net_income / revenue）
+    source: str = "stock.db:stock_fundamentals"
+    fetched_at: datetime = field(default_factory=utc_now)
+
+    @property
+    def period_label(self) -> str:
+        """西元年 + 季，如 '2026 Q1'（roc_year 115 → 2026）。"""
+        return f"{self.roc_year + 1911} Q{self.season}"
+
+
+@dataclass(frozen=True)
 class NewsItem:
     """單則新聞（來源：mynews / news.db）。"""
 
@@ -103,6 +127,8 @@ class DataPacket:
     news: tuple[NewsItem, ...]
     news_sentiment_mean: float | None   # 過去 N 天平均情緒；無新聞則 None
     news_count: int
+    financials: FinancialsSnapshot | None = None   # 最新一期季報（缺 → None）
+    revenue_yoy_pct: float | None = None           # 最新月營收年增率 %（缺/未落地 → None）
     warnings: tuple[str, ...] = ()      # 缺料/降級的明確告警（不靜默）
     fetched_at: datetime = field(default_factory=utc_now)
 
@@ -128,6 +154,8 @@ class DataPacket:
             "news": [snap(n) for n in self.news],
             "news_sentiment_mean": self.news_sentiment_mean,
             "news_count": self.news_count,
+            "financials": snap(self.financials),
+            "revenue_yoy_pct": self.revenue_yoy_pct,
             "warnings": list(self.warnings),
             "fetched_at": self.fetched_at.isoformat(),
         }
@@ -155,13 +183,55 @@ class AgentVerdict:
 
 @dataclass(frozen=True)
 class MacroReading:
-    """總經原始輸入（殖利率利差 + CPI + 情緒），帶血緣與模擬旗標。"""
+    """總經原始輸入（殖利率利差 + CPI + 情緒），帶血緣與模擬旗標。
+
+    語意上為**美股 / 全球**總經（來源：my-Fund-dashboard / fund.db fred_macro）。
+    """
 
     yield_spread_pct: float     # 10Y - 2Y，單位百分點
     cpi_yoy_pct: float          # CPI 年增率，單位百分點
     source: str
     as_of: str
     is_simulated: bool          # True = 模擬/注入值，非真實 API（Fail Loud 透明化）
+
+
+@dataclass(frozen=True)
+class TwMacroReading:
+    """台股總經快照（來源：my-stock-dashboard / stock.db）。
+
+    * pmi           製造業採購經理人指數（指數點位，榮枯線 50；非百分比）。
+    * foreign_net_yi 外資買賣超（單位 **億元**，賣超為負；禁止與「張」混用）。
+
+    兩指標**各自獨立可缺**：查無 → None（顯示「資料不足」，不捏造，§1 Fail Loud），
+    不因單一指標缺席而讓整段台股情勢消失。
+    """
+
+    pmi: float | None
+    pmi_as_of: str | None       # PMI 歸屬月（YYYY-MM-DD）
+    foreign_net_yi: float | None
+    foreign_as_of: str | None   # 外資買賣超歸屬交易日
+    source: str
+    is_simulated: bool = False
+
+
+@dataclass(frozen=True)
+class TwNightReading:
+    """台股盤前訊號：台指期外資留倉 + 台指夜盤漲跌（來源：my-stock-dashboard / stock.db）。
+
+    兩訊號各自獨立可缺（None → 該段不顯示，不捏造）：
+    * foreign_fut_oi_lots  外資期貨留倉淨口數（**口**；+ 淨多 / − 淨空）。
+    * night_close/chg       台指期夜盤（盤後 15:00–05:00 台灣時間）收盤 + 相對日盤收盤漲跌
+      （night_chg_pts 點 / night_chg_pct %）—— 涵蓋歐美盤 → 對隔日台股開盤有領先性。
+    """
+
+    foreign_fut_oi_lots: float | None
+    fut_oi_as_of: str | None
+    night_close: float | None
+    night_chg_pts: float | None
+    night_chg_pct: float | None
+    night_as_of: str | None
+    source: str
+    is_simulated: bool = False
 
 
 @dataclass(frozen=True)
