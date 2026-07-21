@@ -14,6 +14,7 @@ from multi_agent_system.contracts import (
 from multi_agent_system.market_digest import (
     NewsStat,
     build_market_digest,
+    market_regime,
     night_regime,
     sentiment_label,
     summarize_news,
@@ -224,6 +225,42 @@ def test_build_digest_without_tw_macro_backward_compatible():
     )
     assert "📊" not in digest                    # 無台股總經行
     assert "台股" in digest                       # 台股區塊仍在
+
+
+def test_build_digest_market_regime_and_news_read():
+    # 大盤判讀（🧭）綜合 5 面向，且新聞情緒（美股 + 台股）納入解讀結果。
+    digest = build_market_digest(
+        session="afternoon", day="07/21",
+        macro=_macro(0.4, 3.0),
+        intl_news=summarize_news([_news("Fed", 0.6)]),
+        tw_news=summarize_news([_news("台積電", 0.5)]),
+        tally=tally_watchlist([_res(Action.HOLD)]),
+        tw_macro=_tw_macro(55.0, -60.0),
+        night=_night(pct=-1.5),
+    )
+    assert "🧭 大盤判讀" in digest and "綜合偏多度" in digest
+    assert "美股情緒" in digest and "台股情緒" in digest
+    assert "🧠" not in digest          # 仍無 LLM
+
+
+def test_market_regime_five_dims_and_bounds():
+    label, overall, reasons = market_regime(
+        _macro(0.4, 3.0), _tw_macro(55.0, -60.0), _night(pct=-1.5),
+        summarize_news([_news("a", 0.6)]), summarize_news([_news("b", 0.5)]),
+    )
+    assert label in ("偏多", "中性", "偏空")
+    assert 0.0 <= overall <= 1.0
+    assert len(reasons) == 5           # 總經 + 台股 + 夜盤 + 美股情緒 + 台股情緒
+    assert any("美股情緒" in r for r in reasons)
+    assert any("台股情緒" in r for r in reasons)
+
+
+def test_market_regime_skips_missing_dims():
+    # 缺台股總經 + 缺夜盤 + 缺新聞 → 只剩總經一面向（不臆造，§1 Fail-Loud）。
+    label, overall, reasons = market_regime(
+        _macro(1.5, 2.0), None, None, NewsStat(0, None, []), NewsStat(0, None, []),
+    )
+    assert len(reasons) == 1 and "美股總經" in reasons[0]
 
 
 # ---------------------------------------------------------------- CLI 冒煙

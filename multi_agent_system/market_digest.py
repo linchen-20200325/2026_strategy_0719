@@ -18,18 +18,26 @@ from dataclasses import dataclass, field
 
 from config import (
     CPI_HOT_PCT,
+    CPI_TARGET_PCT,
     DIGEST_NEWS_TOP_N,
     DIGEST_SENTIMENT_BEARISH_MAX,
     DIGEST_SENTIMENT_BULLISH_MIN,
+    MARKET_REGIME_BEAR_MAX,
+    MARKET_REGIME_BULL_MIN,
     NIGHT_BIG_MOVE_PCT,
     NIGHT_SMALL_MOVE_PCT,
     PMI_EXPANSION_LEVEL,
+    PMI_REGIME_SPAN,
+    SENTIMENT_RAW_MAX,
+    SENTIMENT_RAW_MIN,
     SESSION_LABELS,
+    YIELD_HEALTHY_PCT,
     YIELD_INVERSION_PCT,
 )
 
 from .contracts import Action, MacroReading, NewsItem, TwMacroReading, TwNightReading
 from .integration_agent import CycleResult
+from .numerics import linear_map
 
 
 @dataclass(frozen=True)
@@ -148,6 +156,105 @@ def _news_block(icon_label: str, stat: NewsStat) -> list[str]:
     return lines
 
 
+def _regime_word(score: float) -> str:
+    """綜合偏多度 [0,1] → 偏多 / 中性 / 偏空（門檻走 config SSOT）。"""
+    if score >= MARKET_REGIME_BULL_MIN:
+        return "偏多"
+    if score <= MARKET_REGIME_BEAR_MAX:
+        return "偏空"
+    return "中性"
+
+
+def _sentiment_bull(mean: float) -> float:
+    """新聞情緒 mean → 偏多度 [0,1]（範圍走 config SENTIMENT_RAW_MIN/MAX SSOT；+1→1 / 0→0.5 / -1→0）。"""
+    return linear_map(mean, SENTIMENT_RAW_MIN, SENTIMENT_RAW_MAX, 0.0, 1.0)
+
+
+def market_regime(
+    macro: MacroReading,
+    tw_macro: TwMacroReading | None,
+    night: TwNightReading | None,
+    intl_news: NewsStat,
+    tw_news: NewsStat,
+) -> tuple[str, float, list[str]]:
+    """規則式「大盤判讀」：綜合 5 面向 → 偏多/中性/偏空 + 綜合偏多度 + 各面向解讀。
+
+    面向（缺料者不計入、不臆造，§1 Fail-Loud）：
+      1) 美股/全球總經：殖利率曲線 + CPI（高 CPI 壓分）
+      2) 台股總經：PMI 榮枯 + 外資買賣超方向
+      3) 台指夜盤：夜盤漲跌 → 隔日開盤傾向
+      4) 美股新聞情緒 / 5) 台股新聞情緒：mean ∈[-1,1] → 偏多度
+    每面向映射偏多度 ∈[0,1]，等權平均。數字/門檻全走 config SSOT，可重現、無 LLM。
+    """
+    dims: list[float] = []
+    reasons: list[str] = []
+
+    curve = linear_map(macro.yield_spread_pct, YIELD_INVERSION_PCT, YIELD_HEALTHY_PCT, 0.0, 1.0)
+    cpi = linear_map(macro.cpi_yoy_pct, CPI_HOT_PCT, CPI_TARGET_PCT, 0.0, 1.0)
+    macro_score = (curve + cpi) / 2.0
+    dims.append(macro_score)
+    reasons.append(
+        f"美股總經{_regime_word(macro_score)}"
+        f"（利差{macro.yield_spread_pct:+.2f}%·CPI{macro.cpi_yoy_pct:.1f}%）"
+    )
+
+    if tw_macro is not None:
+        tw_parts: list[float] = []
+        tw_desc: list[str] = []
+        if tw_macro.pmi is not None:
+            tw_parts.append(
+                linear_map(
+                    tw_macro.pmi,
+                    PMI_EXPANSION_LEVEL - PMI_REGIME_SPAN,
+                    PMI_EXPANSION_LEVEL + PMI_REGIME_SPAN,
+                    0.0, 1.0,
+                )
+            )
+            tw_desc.append("PMI擴張" if tw_macro.pmi >= PMI_EXPANSION_LEVEL else "PMI收縮")
+        if tw_macro.foreign_net_yi is not None:
+            tw_parts.append(1.0 if tw_macro.foreign_net_yi > 0 else 0.0)
+            tw_desc.append("外資買超" if tw_macro.foreign_net_yi > 0 else "外資賣超")
+        if tw_parts:
+            tw_score = sum(tw_parts) / len(tw_parts)
+            dims.append(tw_score)
+            reasons.append(f"台股總經{_regime_word(tw_score)}（{'·'.join(tw_desc)}）")
+
+    if night is not None and night.night_chg_pct is not None:
+        # 夜盤漲跌 → 偏多度：-NIGHT_BIG→0 / 0→0.5 / +NIGHT_BIG→1（範圍走 config SSOT）。
+        night_score = linear_map(
+            night.night_chg_pct, -NIGHT_BIG_MOVE_PCT, NIGHT_BIG_MOVE_PCT, 0.0, 1.0
+        )
+        dims.append(night_score)
+        reasons.append(f"夜盤{_regime_word(night_score)}（{night.night_chg_pct:+.1f}%）")
+
+    if intl_news.mean is not None:
+        dims.append(_sentiment_bull(intl_news.mean))
+        reasons.append(f"美股情緒{sentiment_label(intl_news.mean)}（{intl_news.mean:+.2f}）")
+
+    if tw_news.mean is not None:
+        dims.append(_sentiment_bull(tw_news.mean))
+        reasons.append(f"台股情緒{sentiment_label(tw_news.mean)}（{tw_news.mean:+.2f}）")
+
+    overall = sum(dims) / len(dims)
+    return _regime_word(overall), overall, reasons
+
+
+def _regime_lines(
+    macro: MacroReading,
+    tw_macro: TwMacroReading | None,
+    night: TwNightReading | None,
+    intl_news: NewsStat,
+    tw_news: NewsStat,
+) -> list[str]:
+    """🧭 大盤判讀段（規則式綜合解讀；放快訊末做「解讀結果」收尾）。"""
+    label, overall, reasons = market_regime(macro, tw_macro, night, intl_news, tw_news)
+    return [
+        "━━ 🧭 大盤判讀（規則式綜合）━━",
+        f"{label}（綜合偏多度 {overall:.2f}）",
+        "　└ " + " · ".join(reasons),
+    ]
+
+
 def build_market_digest(
     *,
     session: str,
@@ -184,4 +291,5 @@ def build_market_digest(
     if tally.bullish_names:
         lines.append(f"📈 利多：{'、'.join(tally.bullish_names)}")
     lines += _news_block("📰 台股新聞情緒", tw_news)
+    lines += _regime_lines(macro, tw_macro, night, intl_news, tw_news)
     return "\n".join(lines)

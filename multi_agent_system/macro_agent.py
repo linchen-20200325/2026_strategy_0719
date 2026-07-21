@@ -38,6 +38,8 @@ from config import (
     CPI_HOT_PCT,
     CPI_TARGET_PCT,
     MACRO_SUBWEIGHTS,
+    SENTIMENT_RAW_MAX,
+    SENTIMENT_RAW_MIN,
     YIELD_HEALTHY_PCT,
     YIELD_INVERSION_PCT,
 )
@@ -86,7 +88,9 @@ class MacroeconomicAgent:
 
         sentiment_available = news_sentiment_mean is not None
         if sentiment_available:
-            sentiment_score = linear_map(float(news_sentiment_mean), -1.0, 1.0, 0.0, 1.0)
+            sentiment_score = linear_map(
+                float(news_sentiment_mean), SENTIMENT_RAW_MIN, SENTIMENT_RAW_MAX, 0.0, 1.0
+            )
             health = w_curve * curve_score + w_cpi * cpi_score + w_sent * sentiment_score
         else:
             # 重新歸一化 curve/cpi（不臆造中性情緒）。
