@@ -114,14 +114,25 @@ flowchart TD
 
 ---
 
-## 4. 已知技術債（收攏方向見瘦身藍圖）
+## 4. 技術債狀態（瘦身藍圖執行進度）
 
-分層契約在**要緊處已被遵守**（純度、核心無 UI、無資料上行依賴）。債務集中在三處：
+分層契約在**要緊處一直被遵守**（純度、核心無 UI、無資料上行依賴）。深層稽核瘦身藍圖執行後：
 
-1. **兩個 god-module**：
-   - `integration_agent.py`（V1）＝ 編排 + 券商執行 + 核心 DTO 三合一。
-   - `pipeline/runner.py`（V2，348 LOC）＝ 排程 + 過濾 + 大量文字渲染。
-2. **缺一個「文字渲染層」**：LINE/console 文字組裝散在 `pipeline/runner`、`market_digest`、`ledger/report` 三個計算模組（V2/V3/V4）。有 `ui/`（Streamlit 渲染層）卻沒有對應的文字渲染層。
-3. **兩個核心 DTO 放錯層**：`CycleResult`/`ResearchRequest` 困在 L3 `integration_agent`、`WatchItem` 困在 `pipeline/watchlist`。搬回 `contracts.py`（L0）可一次清掉**全部三個上行 import** 與**唯一的依賴循環**（`subscribers` ⇄ `github_store`，V5/V6/V7）。
+### ✅ 已解決
+- **V1** god-module 拆解：`integration_agent` 只留純編排；券商執行拆出 `broker.py`（BrokerAPI/MockBrokerAPI/maybe_trade）。
+- **V5** 核心 DTO 歸位：`OrderReceipt`/`CycleResult` 搬回 `contracts.py`(L0) → 清掉 ui/market_digest/runner 三個上行 import。
+- **V6** 核心 DTO 歸位：`WatchItem` 搬回 `contracts.py`(L0) → L1 store 不再 reach 進 pipeline 子套件。
+- **V9** `strategy_agent` 改用 `numerics.clamp`（原唯一沒用 numerics 的 agent）。
+- **V10** sqlite 唯讀連線 + 識別字白名單抽 `infra/db.py`（安全白名單全專案唯一份）；`data_agent` 不再兼作 db-infra home。
+- **V11** ledger recorder/report docstring 層級標籤修正。
+- **SSOT 收攏**：`numerics.weighted_mean`（C1）、`macro_db._latest_from`（C3）、`infra/http.request_json`（C2）、`ledger/_jsonl`（C4）、`Action.tone`+`ACTION_EMOJI`（C5）。
 
-> 上述為稽核當下（2026-07）快照。實作前請對照瘦身藍圖分階段核准。
+### ⏳ 剩餘
+- **V2/V3/V4 文字渲染層（最大單項）**：LINE/console 文字組裝仍散在 `pipeline/runner`（≈348 LOC，god-module）、`market_digest`、`ledger/report`。需抽一個「文字渲染層」（對應 `ui/` 的 Streamlit 層），讓計算模組回歸純。建議獨立聚焦進行。
+- **V7 依賴循環**：`subscribers` ⇄ `github_store`（現靠 lazy import 撐，可運作但脆弱）。抽 `subscribers_core.py`（純 helper + Protocol）兩端共用即破。
+- **V8 / V4-評分對齊**：`data_agent` 抓+輕度衍生、`market_digest.market_regime` 與 `macro_agent` 兩套總經評分 —— 低優先、by-design 可接受，待實際需求。
+
+### 新增基底 / 拆分模組
+`broker.py`（L3 執行）· `infra/{http,db}.py`（L0/L1 共用 I/O 底層）· `ledger/_jsonl.py`（ledger I/O）· `paths.py`（落地路徑 SSOT）。
+
+> 稽核基準 2026-07；本節隨瘦身藍圖執行更新。上方 §3 模組地圖為稽核當下快照（V1/V5/V6 後 integration_agent 已非 god、DTO 已歸位 contracts）。
