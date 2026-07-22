@@ -9,16 +9,13 @@
 
 from __future__ import annotations
 
-import os
-import re
-import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 
 from config import today_tw
 
-_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+from ..infra.db import connect_readonly, safe_identifier
 
 # 預設 (資料庫路徑鍵, 資料表, 日期欄)。表名經白名單驗證防注入。
 DEFAULT_TABLES: dict[str, tuple[str, str, str]] = {
@@ -61,11 +58,9 @@ class FreshnessReport:
 
 
 def _latest_date(db_path: str, table: str, col: str) -> str | None:
-    if not _IDENTIFIER_RE.match(table) or not _IDENTIFIER_RE.match(col):
-        raise ValueError(f"不合法的表名/欄名：{table}.{col}")
-    if not os.path.exists(db_path):
-        raise FileNotFoundError(f"資料庫檔不存在：{db_path}")
-    with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+    safe_identifier(table, "資料表")
+    safe_identifier(col, "欄位")
+    with connect_readonly(db_path) as conn:
         row = conn.execute(f"SELECT MAX({col}) FROM {table}").fetchone()
     return row[0] if row and row[0] is not None else None
 

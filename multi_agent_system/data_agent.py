@@ -22,8 +22,6 @@
 
 from __future__ import annotations
 
-import os
-import re
 import sqlite3
 from collections.abc import Sequence
 from datetime import date, timedelta
@@ -44,32 +42,8 @@ from .contracts import (
     TechnicalSnapshot,
     UsLinkSnapshot,
 )
+from .infra.db import DataSourceError, connect_readonly, safe_identifier
 from .numerics import clamp
-
-
-class DataSourceError(RuntimeError):
-    """資料來源層級的致命錯誤（DB 缺檔 / 連線斷 / schema 不符）。"""
-
-
-_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-
-def _safe_identifier(name: str, kind: str) -> str:
-    """驗證資料表名為安全識別字（表名無法參數化，須防 SQL injection）。"""
-    if not _IDENTIFIER_RE.match(name):
-        raise ValueError(f"不合法的{kind}名稱：{name!r}（僅允許英數與底線）")
-    return name
-
-
-def _connect_readonly(db_path: str) -> sqlite3.Connection:
-    """以唯讀模式開啟 SQLite；檔案不存在時給出明確錯誤（Fail Loud）。"""
-    if not os.path.exists(db_path):
-        raise DataSourceError(f"資料庫檔不存在：{db_path}")
-    try:
-        # uri=True + mode=ro：保證不會對來源庫寫入。
-        return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    except sqlite3.Error as exc:  # 連線層錯誤
-        raise DataSourceError(f"無法連線資料庫 {db_path}：{exc}") from exc
 
 
 def _read_sql(conn: sqlite3.Connection, sql: str, params: Sequence) -> pd.DataFrame:
@@ -97,9 +71,9 @@ class DataAggregationAgent:
         self.fund_db = fund_db
         self.news_db = news_db
         # 表名可設定以對接使用者真實 schema；經識別字白名單驗證防注入。
-        self.stock_table = _safe_identifier(stock_table, "stock 資料表")
-        self.us_table = _safe_identifier(us_table, "us 資料表")
-        self.news_table = _safe_identifier(news_table, "news 資料表")
+        self.stock_table = safe_identifier(stock_table, "stock 資料表")
+        self.us_table = safe_identifier(us_table, "us 資料表")
+        self.news_table = safe_identifier(news_table, "news 資料表")
 
     # ---------------------------------------------------------------- public
     def aggregate(
@@ -176,7 +150,7 @@ class DataAggregationAgent:
             f"SELECT * FROM {self.stock_table} WHERE stock_id = ? "
             "ORDER BY date DESC LIMIT 1"
         )
-        with _connect_readonly(self.stock_db) as conn:
+        with connect_readonly(self.stock_db) as conn:
             df = _read_sql(conn, sql, [tw_stock_id])
         if df.empty:
             warnings.append(f"stock.db 查無 {tw_stock_id} 的技術面資料")
@@ -228,7 +202,7 @@ class DataAggregationAgent:
             "WHERE us_stock_id = ? ORDER BY date DESC LIMIT 1"
         )
         try:
-            with _connect_readonly(self.fund_db) as conn:
+            with connect_readonly(self.fund_db) as conn:
                 df = _read_sql(conn, sql, [us_stock_id])
         except DataSourceError:
             # fund.db 無 us_market 表（離線層未落地美股連動）→ 視為無連動，不中斷本標的判讀。
@@ -261,7 +235,7 @@ class DataAggregationAgent:
             "ORDER BY roc_year DESC, season DESC LIMIT 1"
         )
         try:
-            with _connect_readonly(self.stock_db) as conn:
+            with connect_readonly(self.stock_db) as conn:
                 df = _read_sql(conn, sql, [tw_stock_id])
         except DataSourceError:
             # stock_fundamentals 表不存在（如僅離線層未落地）→ 視為無財報，不中斷本標的。
@@ -301,7 +275,7 @@ class DataAggregationAgent:
         月營收表為 live 層（需 FINMIND_TOKEN 才落地）→ 表缺時回 None（基本面退為僅財報）。
         """
         try:
-            with _connect_readonly(self.stock_db) as conn:
+            with connect_readonly(self.stock_db) as conn:
                 latest = _read_sql(
                     conn,
                     "SELECT date, revenue FROM monthly_revenue WHERE stock_id = ? "
@@ -360,7 +334,7 @@ class DataAggregationAgent:
             f"WHERE ({like_clauses}) AND date >= ? AND date <= ? "
             "ORDER BY date DESC"
         )
-        with _connect_readonly(self.news_db) as conn:
+        with connect_readonly(self.news_db) as conn:
             df = _read_sql(conn, sql, params)
 
         if df.empty:

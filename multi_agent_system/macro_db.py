@@ -31,7 +31,7 @@ from __future__ import annotations
 import sqlite3
 
 from .contracts import MacroReading, TwMacroReading, TwNightReading
-from .data_agent import DataSourceError, _connect_readonly, _safe_identifier
+from .infra.db import DataSourceError, connect_readonly, safe_identifier
 
 
 def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
@@ -59,8 +59,8 @@ def _latest_from(
     table/col 走白名單驗證（識別字無法參數化 → 防 SQL injection）。呼叫端須先確認表存在。
     收攏 TW macro / night 多處「SELECT date, X … WHERE X IS NOT NULL ORDER BY date DESC」重複。
     """
-    _safe_identifier(table, "資料表")
-    _safe_identifier(col, "欄位")
+    safe_identifier(table, "資料表")
+    safe_identifier(col, "欄位")
     row = conn.execute(
         f"SELECT date, {col} FROM {table} "
         f"WHERE {col} IS NOT NULL ORDER BY date DESC LIMIT 1"
@@ -79,7 +79,7 @@ def read_us_macro(fund_db_path: str) -> MacroReading:
 
     Fail-Loud：DGS10/DGS2 任一缺、或 CPI 無法算年增率 → raise DataSourceError。
     """
-    with _connect_readonly(fund_db_path) as conn:
+    with connect_readonly(fund_db_path) as conn:
         if not _table_exists(conn, "fred_macro"):
             raise DataSourceError(f"fund.db 無 fred_macro 表：{fund_db_path}")
 
@@ -125,7 +125,7 @@ def read_tw_macro(stock_db_path: str) -> TwMacroReading:
     pmi = pmi_as_of = None
     foreign_net_yi = foreign_as_of = None
 
-    with _connect_readonly(stock_db_path) as conn:
+    with connect_readonly(stock_db_path) as conn:
         if _table_exists(conn, "macro_tw_pmi"):
             res = _latest_from(conn, "macro_tw_pmi", "pmi")
             if res is not None:
@@ -156,7 +156,7 @@ def read_tw_night(stock_db_path: str) -> TwNightReading:
     oi = oi_as_of = None
     night_close = night_pts = night_pct = night_as_of = None
 
-    with _connect_readonly(stock_db_path) as conn:
+    with connect_readonly(stock_db_path) as conn:
         if _table_exists(conn, "futures_oi"):
             res = _latest_from(conn, "futures_oi", "foreign_net_oi_lots")
             if res is not None:
