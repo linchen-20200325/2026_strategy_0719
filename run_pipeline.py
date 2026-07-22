@@ -222,7 +222,10 @@ def main(argv: list[str] | None = None) -> int:
         "--per-user", action="store_true",
         help="改跑個人化推播：每位訂閱者各自清單 → LINE push 逐人",
     )
-    parser.add_argument("--subscribers", default="subscribers.json", help="訂閱者 JSON 檔（--per-user 用）")
+    parser.add_argument(
+        "--subscribers", default=None,
+        help="訂閱者 JSON 檔（--per-user 用）；未指定 → env SUBSCRIBERS_FILE 或 paths SSOT（data/）",
+    )
     parser.add_argument("--dry-run", action="store_true", help="--per-user / --market-digest 時只算不推")
     parser.add_argument(
         "--market-digest", action="store_true",

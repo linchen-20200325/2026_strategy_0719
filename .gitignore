@@ -32,6 +32,8 @@ env/
 *.swp
 .DS_Store
 
-# ledger runtime artifacts（CI 寫入後 force-push 到 ledger 分支,不入主分支）
+# 本地執行期資料根（forward-test ledger；落地位置 SSOT = paths.DATA_DIR）
+/data/
+# ledger runtime artifacts（CI 以 env 指定 bare 檔名 → force-push 到 ledger 分支,不入主分支）
 ledger.jsonl
 stock_ledger.jsonl

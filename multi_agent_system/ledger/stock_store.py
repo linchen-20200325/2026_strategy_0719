@@ -16,7 +16,7 @@ import os
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 
-DEFAULT_STOCK_LEDGER_FILE = "stock_ledger.jsonl"
+from paths import STOCK_LEDGER_FILE as DEFAULT_STOCK_LEDGER_FILE  # 落地位置 SSOT（見 paths.py）
 
 
 @dataclass(frozen=True)
