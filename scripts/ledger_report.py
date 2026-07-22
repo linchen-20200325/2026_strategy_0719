@@ -22,7 +22,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from multi_agent_system.ledger import (  # noqa: E402
     PriceBar,
+    build_equity,
     build_report,
+    format_equity,
     format_report,
     read_judgments,
 )
@@ -62,7 +64,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     bars = _read_market_index_bars(args.stock_db)
-    text = format_report(build_report(judgments, bars))
+    text = (
+        format_report(build_report(judgments, bars))
+        + "\n\n"
+        + format_equity(build_equity(judgments, bars))
+    )
     print(text)
 
     if args.line:

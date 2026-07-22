@@ -208,6 +208,23 @@ LEDGER_HIT_BAND_RATIO: float = 0.005    # 0.5%
 # 命中率統計「可信樣本」下限：低於此值報表附「樣本少，僅供參考」旗標（防過早下結論）。
 LEDGER_MIN_MEANINGFUL_SAMPLE: int = 30
 
+# 機械式跟單淨值（ledger 延伸）—— 各判讀對應市場曝險（比例）。
+# 預設 long-only 防禦（偏多才進場、其餘空手）；改 long-short 只需把偏空設 -1.0。
+LEDGER_EXPOSURE: dict[str, float] = {
+    REGIME_LABEL_BULL: 1.0,
+    REGIME_LABEL_NEUTRAL: 0.0,
+    REGIME_LABEL_BEAR: 0.0,
+}
+# 換手成本（比例，來回）：曝險改變時扣除，誠實反映 churn。
+# 台股手續 0.1425%×2 + 證交稅 0.3% ≈ 0.6%。
+LEDGER_SWITCH_COST_RATIO: float = 0.006
+
+# regime 標籤（判讀當下市場狀態，供「分 regime 對帳」）——
+# MVP 第一軸：殖利率曲線。spread <= YIELD_INVERSION_PCT(0) → 倒掛（late-cycle/風險），否則正常。
+REGIME_YIELD_INVERTED: str = "倒掛"
+REGIME_YIELD_NORMAL: str = "正常"
+REGIME_UNTAGGED: str = "未標記"   # 舊判讀列（無 regime 欄）讀入時的預設
+
 # =============================================================================
 # 6. 數值容差（浮點比較一律用容差，禁止 ==）
 # =============================================================================

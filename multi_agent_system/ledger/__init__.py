@@ -16,8 +16,17 @@ from .reconcile import (
     forward_return,
     reconcile,
 )
-from .recorder import record_market_regime
-from .report import BucketStat, LedgerReport, build_report, dedup_judgments, format_report
+from .recorder import record_market_regime, regime_of
+from .report import (
+    BucketStat,
+    EquityReport,
+    LedgerReport,
+    build_equity,
+    build_report,
+    dedup_judgments,
+    format_equity,
+    format_report,
+)
 from .store import Judgment, append_judgment, read_judgments
 
 __all__ = [
@@ -30,9 +39,13 @@ __all__ = [
     "append_judgment",
     "read_judgments",
     "record_market_regime",
+    "regime_of",
     "BucketStat",
+    "EquityReport",
     "LedgerReport",
+    "build_equity",
     "build_report",
     "dedup_judgments",
+    "format_equity",
     "format_report",
 ]

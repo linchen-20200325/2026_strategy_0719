@@ -12,15 +12,17 @@ from dataclasses import dataclass
 from datetime import date
 
 from config import (
+    LEDGER_EXPOSURE,
     LEDGER_HIT_BAND_RATIO,
     LEDGER_HORIZON_TRADING_DAYS,
     LEDGER_MIN_MEANINGFUL_SAMPLE,
+    LEDGER_SWITCH_COST_RATIO,
     REGIME_LABEL_BEAR,
     REGIME_LABEL_BULL,
     REGIME_LABEL_NEUTRAL,
 )
 
-from .reconcile import STATUS_SCORED, PriceBar, reconcile
+from .reconcile import STATUS_SCORED, PriceBar, _entry_index, reconcile
 from .store import Judgment
 
 _BUCKETS = (REGIME_LABEL_BULL, REGIME_LABEL_NEUTRAL, REGIME_LABEL_BEAR)
@@ -43,6 +45,7 @@ class LedgerReport:
     directional_hit_rate: float | None  # 偏多+偏空 命中率（中性不計方向）
     directional_n: int
     buckets: dict                       # label -> BucketStat
+    by_regime: dict                     # regime -> (n, hits, hit_rate)（僅方向判讀）
     horizon_n: int
     band: float
 
@@ -74,6 +77,8 @@ def build_report(
     hits = {b: 0 for b in _BUCKETS}
     rets: dict[str, list[float]] = {b: [] for b in _BUCKETS}
     n_scored = n_pending = 0
+    reg_n: dict[str, int] = {}      # 分 regime：僅方向判讀（偏多/偏空）
+    reg_hits: dict[str, int] = {}
 
     for j in deduped:
         out = reconcile(
@@ -88,6 +93,10 @@ def build_report(
         if out.hit:
             hits[j.label] += 1
         rets[j.label].append(out.forward_return)
+        if j.label in (REGIME_LABEL_BULL, REGIME_LABEL_BEAR):
+            reg_n[j.regime] = reg_n.get(j.regime, 0) + 1
+            if out.hit:
+                reg_hits[j.regime] = reg_hits.get(j.regime, 0) + 1
 
     buckets = {
         b: BucketStat(b, n[b], hits[b],
@@ -96,10 +105,14 @@ def build_report(
     }
     dn = n[REGIME_LABEL_BULL] + n[REGIME_LABEL_BEAR]
     dh = hits[REGIME_LABEL_BULL] + hits[REGIME_LABEL_BEAR]
+    by_regime = {
+        r: (reg_n[r], reg_hits.get(r, 0), reg_hits.get(r, 0) / reg_n[r])
+        for r in reg_n
+    }
     return LedgerReport(
         n_total=len(deduped), n_scored=n_scored, n_pending=n_pending,
         directional_hit_rate=(dh / dn if dn else None), directional_n=dn,
-        buckets=buckets, horizon_n=horizon_n, band=band,
+        buckets=buckets, by_regime=by_regime, horizon_n=horizon_n, band=band,
     )
 
 
@@ -123,4 +136,82 @@ def format_report(rep: LedgerReport) -> str:
         hr = f"{st.hit_rate:.0%}" if st.hit_rate is not None else "—"
         avg = f"{st.avg_forward_return:+.1%}" if st.avg_forward_return is not None else "—"
         lines.append(f"　{b} {st.n} 筆　命中 {st.hits}（{hr}）　平均前瞻 {avg}")
+    if rep.by_regime:
+        lines.append("— 分 regime（方向命中率）—")
+        for r, (rn, rh, rr) in rep.by_regime.items():
+            lines.append(f"　{r}：{rr:.0%}（{rh}/{rn}）")
     return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ 機械式跟單淨值
+@dataclass(frozen=True)
+class EquityReport:
+    """跟著判讀機械式做的假設淨值 vs 大盤買入持有（stateless，含換手成本）。"""
+
+    n_segments: int
+    strategy_return: float | None   # 跟單累積報酬（比例）
+    market_return: float | None     # 大盤買入持有（比例）
+    excess: float | None            # 跟單 − 大盤（超額）
+    n_switches: int
+    switch_cost: float
+
+
+_SESSION_RANK = {"morning": 0, "afternoon": 1}
+
+
+def _chrono(judgments: list[Judgment]) -> list[Judgment]:
+    """去重 + 依 (判讀日, session) 時序排序（morning 先於 afternoon）。"""
+    return sorted(
+        dedup_judgments(judgments),
+        key=lambda j: (j.judged_date, _SESSION_RANK.get(j.session, 9)),
+    )
+
+
+def build_equity(
+    judgments: list[Judgment],
+    bars: list[PriceBar],
+    *,
+    exposure: dict | None = None,
+    switch_cost: float | None = None,
+) -> EquityReport:
+    """機械式跟單淨值 vs 大盤：判讀依序連段，每段 exposure × 大盤 open-to-open 報酬，累乘。
+
+    段報酬 = open[下一判讀進場] / open[本判讀進場] − 1；換手成本 = switch_cost × |曝險變動|。
+    最後一筆無「下一段」→ 不計（pending）；進場超出資料範圍或零長度段 → skip。
+    """
+    exposure = LEDGER_EXPOSURE if exposure is None else exposure
+    switch_cost = LEDGER_SWITCH_COST_RATIO if switch_cost is None else switch_cost
+    seq = _chrono(judgments)
+    entries = [_entry_index(bars, date.fromisoformat(j.judged_date), j.session) for j in seq]
+
+    strat = mkt = 1.0
+    nseg = nsw = 0
+    prev_exp = 0.0
+    for i in range(len(seq) - 1):
+        ei, ej = entries[i], entries[i + 1]
+        if ei is None or ej is None or ej <= ei:      # 無法成段（缺進場 / 零長度）
+            continue
+        seg_ret = bars[ej].open / bars[ei].open - 1.0
+        exp = exposure.get(seq[i].label, 0.0)
+        strat *= 1.0 + exp * seg_ret - switch_cost * abs(exp - prev_exp)
+        mkt *= 1.0 + seg_ret
+        if exp != prev_exp:
+            nsw += 1
+        prev_exp = exp
+        nseg += 1
+
+    if nseg == 0:
+        return EquityReport(0, None, None, None, 0, switch_cost)
+    sr, mr = strat - 1.0, mkt - 1.0
+    return EquityReport(nseg, sr, mr, sr - mr, nsw, switch_cost)
+
+
+def format_equity(eq: EquityReport) -> str:
+    """機械式跟單淨值 → 純文字。"""
+    if eq.n_segments == 0:
+        return "📈 機械式跟單：尚無足夠判讀連段（等下一筆判讀）"
+    return (
+        f"📈 機械式跟單 vs 大盤（{eq.n_segments} 段 · 換手 {eq.n_switches} 次 · 已扣成本）\n"
+        f"　跟單 {eq.strategy_return:+.1%}　vs　大盤 {eq.market_return:+.1%}"
+        f"　→ 超額 {eq.excess:+.1%}"
+    )

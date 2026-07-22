@@ -175,12 +175,14 @@ def _run_market_digest(orchestrator: WorkflowOrchestrator, args) -> int:
     print(digest)
     # 記錄本次大盤判讀進 ledger（forward-test 對帳用；record 失敗 loud log、絕不擋推播）。
     if args.record:
-        from multi_agent_system.ledger import record_market_regime
+        from multi_agent_system.ledger import record_market_regime, regime_of
 
-        label, overall, _reasons = market_regime(
-            macro.get_reading(), tw_macro, night, intl, tw
+        reading = macro.get_reading()
+        label, overall, _reasons = market_regime(reading, tw_macro, night, intl, tw)
+        record_market_regime(
+            label=label, overall=overall, session=args.session,
+            regime=regime_of(reading.yield_spread_pct),
         )
-        record_market_regime(label=label, overall=overall, session=args.session)
     if args.dry_run:
         return 0
     try:
