@@ -24,8 +24,8 @@ import json
 import logging
 import os
 import sys
-from datetime import date
 
+from config import today_tw
 from multi_agent_system import (
     ConsoleNotifier,
     DataAggregationAgent,
@@ -77,7 +77,7 @@ def _build_macro_provider(fund_db: str | None = None) -> MacroDataProvider:
         return StaticMacroProvider(
             yield_spread_pct=float(spread),
             cpi_yoy_pct=float(cpi),
-            as_of=date.today().isoformat(),
+            as_of=today_tw().isoformat(),
             source="ENV",
             is_simulated=False,
         )
@@ -146,7 +146,7 @@ def _run_market_digest(orchestrator: WorkflowOrchestrator, args) -> int:
 
     agent = orchestrator.data_agent
     macro = _build_macro_provider(agent.fund_db)   # 美股/全球：真實 fund.db 優先
-    as_of = date.today()
+    as_of = today_tw()
     results = orchestrator.run_batch(
         [build_request(it, macro, as_of=as_of) for it in DEMO_WATCHLIST]
     )

@@ -16,6 +16,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 
+from config import today_tw
+
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 # 預設 (資料庫路徑鍵, 資料表, 日期欄)。表名經白名單驗證防注入。
@@ -76,7 +78,7 @@ def check_freshness(
     max_age_days: int = 4,
 ) -> FreshnessReport:
     """檢查三個 DB 的最新資料日期;回傳逐庫報告（不 raise,由呼叫端決定嚴格與否）。"""
-    as_of = as_of or date.today()
+    as_of = as_of or today_tw()
     tables = tables or DEFAULT_TABLES
     items: list[DbFreshness] = []
     for name, (pkey, table, col) in tables.items():
