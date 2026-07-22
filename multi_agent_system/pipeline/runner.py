@@ -18,8 +18,8 @@ from datetime import date, datetime, timezone
 
 from config import SESSION_LABELS
 
-from ..contracts import Action
-from ..integration_agent import CycleResult, ResearchRequest, WorkflowOrchestrator
+from ..contracts import Action, CycleResult
+from ..integration_agent import ResearchRequest, WorkflowOrchestrator
 from ..macro_providers import MacroDataProvider
 from ..notifications import ACTION_EMOJI, Notifier, format_notification, should_notify
 from .freshness import FreshnessReport, check_freshness

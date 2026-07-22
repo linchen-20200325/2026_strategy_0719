@@ -17,8 +17,7 @@ from collections.abc import Sequence
 import altair as alt
 import streamlit as st
 
-from ..contracts import Action, FinalDecision
-from ..integration_agent import CycleResult
+from ..contracts import Action, CycleResult, FinalDecision
 from . import view_model as vm
 from .theme import DEFAULT_PALETTE, Palette
 

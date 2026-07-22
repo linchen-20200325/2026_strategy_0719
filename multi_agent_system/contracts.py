@@ -273,3 +273,26 @@ class FinalDecision:
     def summary(self) -> str:
         score_txt = "N/A" if self.final_score is None else f"{self.final_score:.3f}"
         return f"[{self.tw_stock_id}] {self.action.value} | Final={score_txt}"
+
+
+# ------------------------------------------------------------------ 券商 / 工作流輸出 DTO
+@dataclass(frozen=True)
+class OrderReceipt:
+    """下單回執（券商下單結果 DTO）。is_mock=True 代表未真實成交。"""
+
+    order_id: str
+    symbol: str
+    side: str            # "BUY" / "SELL"
+    quantity: float
+    status: str
+    is_mock: bool
+    placed_at: datetime = field(default_factory=utc_now)
+
+
+@dataclass
+class CycleResult:
+    """單次工作流輸出（決策 + 資料封包 + 下單回執），供觀測。"""
+
+    decision: FinalDecision
+    packet: DataPacket
+    receipt: OrderReceipt | None = None

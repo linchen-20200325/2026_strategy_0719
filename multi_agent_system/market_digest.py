@@ -38,8 +38,7 @@ from config import (
     YIELD_INVERSION_PCT,
 )
 
-from .contracts import MacroReading, NewsItem, TwMacroReading, TwNightReading
-from .integration_agent import CycleResult
+from .contracts import CycleResult, MacroReading, NewsItem, TwMacroReading, TwNightReading
 from .numerics import linear_map
 
 

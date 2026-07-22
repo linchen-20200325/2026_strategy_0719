@@ -31,14 +31,20 @@ import logging
 import time
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from dataclasses import dataclass
+from datetime import date
 from typing import Protocol
 
 from config import NEWS_LOOKBACK_DAYS
 
 from .allocation_agent import AssetAllocationAgent
-from .contracts import Action, DataPacket, FinalDecision, PortfolioState
+from .contracts import (
+    Action,
+    CycleResult,
+    FinalDecision,
+    OrderReceipt,
+    PortfolioState,
+)
 from .data_agent import DataAggregationAgent
 from .fundamental_agent import FundamentalAgent
 from .macro_agent import MacroeconomicAgent
@@ -50,19 +56,6 @@ logger = logging.getLogger("multi_agent_system")
 
 
 # ------------------------------------------------------------------ 券商介面
-
-@dataclass(frozen=True)
-class OrderReceipt:
-    """下單回執。is_mock=True 代表未真實成交。"""
-
-    order_id: str
-    symbol: str
-    side: str            # "BUY" / "SELL"
-    quantity: float
-    status: str
-    is_mock: bool
-    placed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-
 
 class BrokerAPI(Protocol):
     """券商下單契約。未來對接真實 API（永豐/IB/Alpaca…）時實作本介面即可。"""
@@ -112,15 +105,6 @@ class ResearchRequest:
     as_of_date: date | None = None
     auto_trade: bool = False           # 預設不下單（即使是 Mock 也要顯式開啟）
     base_quantity: float = 1000.0      # 下單基準數量（張/股，示意）
-
-
-@dataclass
-class CycleResult:
-    """單次工作流輸出（決策 + 資料封包 + 下單回執），供觀測。"""
-
-    decision: FinalDecision
-    packet: DataPacket
-    receipt: OrderReceipt | None = None
 
 
 # ------------------------------------------------------------------ 主編排
