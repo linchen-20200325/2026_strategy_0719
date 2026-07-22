@@ -2,9 +2,9 @@
 
 單一職責
 --------
-讀取布林通道 (Bollinger Bands) 與 RSI，判斷價格位階是否進入統計學上的
-超買（昂貴）或超賣（便宜）區間，輸出技術面得分 ∈ [0,1]
-（方向：越便宜/超賣 → 越高分，利於買進）。
+讀取布林 %B / RSI / 均線排列 / KD / 三大法人籌碼（上游 my-stock 已 export 的原始欄位，
+判斷在此），以 **D3「順勢 + 回檔進場」** 融合成技術面得分 ∈ [0,1]
+（方向：上升趨勢中的回檔 → 越高分，利於買進；下跌趨勢的超賣 → 不加分，不接刀）。
 
 金融原理與計算式
 ----------------
@@ -24,7 +24,18 @@
    * 便宜度轉分（RSI<=30 超賣→1，RSI>=70 超買→0）：
          cheapness_RSI = clamp( (70 - RSI) / (70 - 30), 0, 1 )
 
-    technical_score = w_%B * cheapness_%B + w_RSI * cheapness_RSI
+3) D3 融合（化解「買便宜=均值回歸」vs「買強勢=順勢」互斥）：
+         trend    = ma_align                       # 均線排列 → 主方向 gate
+         timing   = wmean{cheapness_%B, cheapness_RSI}   # 回檔/超賣（便宜度）
+         momentum = wmean{kd, chip}                # KD 交叉 + 籌碼流向（確認）
+         score    = ( W_trend·trend
+                    + W_entry·(trend × timing)     # ★交互項：回檔只在順勢加分
+                    + W_mom·momentum ) / Σ(present weights)
+     關鍵：**entry = trend × timing**。上升趨勢(trend→1)中回檔(timing 高)→ entry 高（好買點）；
+     下跌趨勢(trend→0)的超賣(timing 高)→ entry = 0（交互項歸零，不接下跌的刀）。
+     組間權重 W_* 走 config.TECH_D3_GROUP_WEIGHTS；組內相對權重走 TECH_SUBWEIGHTS。
+   * trend 缺（舊 stock.db / ETF 無 MA20/60）→ 無方向 gate，退回 {timing, momentum} 等權
+     可用平均（不捏造趨勢；只有 %B+RSI 時 = 原本 0.5/0.5 均值回歸，向後相容不變）。
 
 邊界防禦（對照 CLAUDE.md §1 / §4.6）
 -----------------------------------
@@ -46,6 +57,7 @@ from config import (
     RSI_MIN,
     RSI_OVERBOUGHT,
     RSI_OVERSOLD,
+    TECH_D3_GROUP_WEIGHTS,
     TECH_SUBWEIGHTS,
 )
 
@@ -88,6 +100,41 @@ def _chip_score(snap: TechnicalSnapshot) -> float | None:
     if lots is None or not math.isfinite(lots):
         return None
     return 0.5 + 0.5 * math.tanh(lots / CHIP_SCALE_LOTS)
+
+
+def _wmean(pairs: list[tuple[float, float | None]]) -> float | None:
+    """加權平均，忽略 None 子分量、以在場權重重新歸一化；全缺 → None（不捏 0）。
+
+    pairs = [(weight, subscore_or_None), ...]。用於組內融合（timing / momentum）。
+    """
+    present = [(w, s) for w, s in pairs if s is not None]
+    if not present:
+        return None
+    total_w = math.fsum(w for w, _ in present)
+    if total_w <= 0:
+        return None
+    return math.fsum(w * s for w, s in present) / total_w
+
+
+def _fuse_d3(
+    trend: float | None, timing: float | None, momentum: float | None
+) -> float | None:
+    """D3 順勢+回檔融合。trend 定方向、entry=trend×timing（回檔只在順勢加分）、momentum 確認。
+
+    * trend 缺 → 無方向 gate，不做交互項（避免用假 trend gate timing）；退回可用群等權平均。
+    * trend 在場 → W_trend·trend + W_entry·(trend×timing) + W_mom·momentum，在場權重歸一化。
+    全缺（trend/timing/momentum 皆 None）→ None（呼叫端 Fail-Loud）。
+    """
+    gw = TECH_D3_GROUP_WEIGHTS
+    if trend is None:
+        # 無趨勢方向 → 交互項無意義；退化為「可用群等權平均」（%B+RSI only → 原均值回歸）。
+        return _wmean([(1.0, timing), (1.0, momentum)])
+    parts: list[tuple[float, float | None]] = [(gw["trend"], trend)]
+    if timing is not None:
+        parts.append((gw["entry"], trend * timing))   # ★交互項：順勢×回檔
+    if momentum is not None:
+        parts.append((gw["momentum"], momentum))
+    return _wmean(parts)
 
 
 class TechnicalAnalysisAgent:
@@ -139,30 +186,35 @@ class TechnicalAnalysisAgent:
         if chip_sc is not None:
             diagnostics["chip"] = round(chip_sc, 4)
 
-        # ---------- 融合（缺子分量則重新歸一化）----------
-        parts: list[tuple[float, float]] = []  # (weight, subscore)
-        for key, sub in (
-            ("percent_b", cheap_pctb),
-            ("rsi", cheap_rsi),
-            ("ma_align", ma_score),
-            ("kd", kd_sc),
-            ("chip", chip_sc),
-        ):
-            if sub is not None:
-                parts.append((TECH_SUBWEIGHTS[key], sub))
+        # ---------- D3 融合：順勢定方向 + 回檔進場（交互項）+ 動能確認 ----------
+        # 先組內加權平均（TECH_SUBWEIGHTS 為組內相對權重，缺則重新歸一化），再組間 D3 融合。
+        w = TECH_SUBWEIGHTS
+        trend = ma_score                                              # trend 群：均線排列（方向 gate）
+        timing = _wmean([(w["percent_b"], cheap_pctb), (w["rsi"], cheap_rsi)])   # 回檔/超賣
+        momentum = _wmean([(w["kd"], kd_sc), (w["chip"], chip_sc)])              # KD + 籌碼 確認
 
-        if not parts:
+        n_used = sum(
+            s is not None for s in (cheap_pctb, cheap_rsi, ma_score, kd_sc, chip_sc)
+        )
+        if n_used == 0:
             return AgentVerdict.unavailable(
                 AGENT_NAME, f"技術指標全數無效：{diagnostics}"
             )
 
-        total_w = sum(w for w, _ in parts)
-        score = sum(w * s for w, s in parts) / total_w
+        score = _fuse_d3(trend, timing, momentum)
+        if score is None:   # n_used>0 時理論上不會發生；防禦性 Fail-Loud
+            return AgentVerdict.unavailable(
+                AGENT_NAME, f"技術指標融合失敗（子群全缺）：{diagnostics}"
+            )
         score = clamp(score, 0.0, 1.0)
+
+        for gk, gv in (("trend", trend), ("timing", timing), ("momentum", momentum)):
+            if gv is not None:
+                diagnostics[f"grp_{gk}"] = round(gv, 4)
 
         regime = self._classify_regime(percent_b, cheap_rsi, rsi_used)
         diagnostics["regime"] = regime
-        diagnostics["subcomponents_used"] = len(parts)
+        diagnostics["subcomponents_used"] = n_used
 
         return AgentVerdict(
             agent=AGENT_NAME,
