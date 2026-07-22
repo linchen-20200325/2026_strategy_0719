@@ -38,7 +38,7 @@ from config import (
     YIELD_INVERSION_PCT,
 )
 
-from .contracts import Action, MacroReading, NewsItem, TwMacroReading, TwNightReading
+from .contracts import MacroReading, NewsItem, TwMacroReading, TwNightReading
 from .integration_agent import CycleResult
 from .numerics import linear_map
 
@@ -85,10 +85,11 @@ def tally_watchlist(results: Sequence[CycleResult]) -> WatchTally:
     names: list[str] = []
     for r in results:
         d = r.decision
-        if d.action.is_bullish and not d.abstained:
+        tone = d.action.tone
+        if tone == "bullish" and not d.abstained:
             bullish += 1
             names.append(d.tw_stock_id)
-        elif d.action in (Action.REDUCE, Action.STRONG_SELL):
+        elif tone == "bearish":
             bearish += 1
         else:
             hold += 1

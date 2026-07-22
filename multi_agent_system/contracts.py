@@ -31,8 +31,21 @@ class Action(enum.Enum):
     STRONG_SELL = "強烈賣出 (Strong Sell)"
 
     @property
+    def tone(self) -> str:
+        """三態情緒 SSOT：bullish(SB/ADD) / neutral(HOLD) / bearish(REDUCE/SS)。
+
+        利多/中性/利空 分類的唯一來源（view_model / market_digest / is_bullish 皆由此衍生，
+        避免同一分類在多處重刻而漂移）。
+        """
+        if self in (Action.STRONG_BUY, Action.ADD):
+            return "bullish"
+        if self in (Action.REDUCE, Action.STRONG_SELL):
+            return "bearish"
+        return "neutral"
+
+    @property
     def is_bullish(self) -> bool:
-        return self in (Action.STRONG_BUY, Action.ADD)
+        return self.tone == "bullish"
 
 
 # 由多頭到空頭的排序（供風控 hard-override 比較「不得比 REDUCE 更偏多」）。

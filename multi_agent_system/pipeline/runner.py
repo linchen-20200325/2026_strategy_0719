@@ -21,7 +21,7 @@ from config import SESSION_LABELS
 from ..contracts import Action
 from ..integration_agent import CycleResult, ResearchRequest, WorkflowOrchestrator
 from ..macro_providers import MacroDataProvider
-from ..notifications import Notifier, format_notification, should_notify
+from ..notifications import ACTION_EMOJI, Notifier, format_notification, should_notify
 from .freshness import FreshnessReport, check_freshness
 from .watchlist import WatchItem
 
@@ -339,10 +339,7 @@ def summarize(report: RunReport) -> str:
     ]
     for r in report.results:
         d = r.decision
-        emoji = {
-            Action.STRONG_BUY: "🟢", Action.ADD: "🟢", Action.HOLD: "🟡",
-            Action.REDUCE: "🟠", Action.STRONG_SELL: "🔴",
-        }[d.action]
+        emoji = ACTION_EMOJI[d.action]
         score = "N/A" if d.final_score is None else f"{d.final_score:.3f}"
         lines.append(f"  {emoji} {d.tw_stock_id}　{d.action.value}　Final={score}")
     return "\n".join(lines)
