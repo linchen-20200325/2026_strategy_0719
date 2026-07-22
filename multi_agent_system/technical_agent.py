@@ -62,7 +62,7 @@ from config import (
 )
 
 from .contracts import AgentVerdict, TechnicalSnapshot
-from .numerics import clamp, isclose, linear_map
+from .numerics import clamp, isclose, linear_map, weighted_mean
 
 AGENT_NAME = "TechnicalAgent"
 
@@ -102,20 +102,6 @@ def _chip_score(snap: TechnicalSnapshot) -> float | None:
     return 0.5 + 0.5 * math.tanh(lots / CHIP_SCALE_LOTS)
 
 
-def _wmean(pairs: list[tuple[float, float | None]]) -> float | None:
-    """加權平均，忽略 None 子分量、以在場權重重新歸一化；全缺 → None（不捏 0）。
-
-    pairs = [(weight, subscore_or_None), ...]。用於組內融合（timing / momentum）。
-    """
-    present = [(w, s) for w, s in pairs if s is not None]
-    if not present:
-        return None
-    total_w = math.fsum(w for w, _ in present)
-    if total_w <= 0:
-        return None
-    return math.fsum(w * s for w, s in present) / total_w
-
-
 def _fuse_d3(
     trend: float | None, timing: float | None, momentum: float | None
 ) -> float | None:
@@ -128,13 +114,13 @@ def _fuse_d3(
     gw = TECH_D3_GROUP_WEIGHTS
     if trend is None:
         # 無趨勢方向 → 交互項無意義；退化為「可用群等權平均」（%B+RSI only → 原均值回歸）。
-        return _wmean([(1.0, timing), (1.0, momentum)])
+        return weighted_mean([(1.0, timing), (1.0, momentum)])
     parts: list[tuple[float, float | None]] = [(gw["trend"], trend)]
     if timing is not None:
         parts.append((gw["entry"], trend * timing))   # ★交互項：順勢×回檔
     if momentum is not None:
         parts.append((gw["momentum"], momentum))
-    return _wmean(parts)
+    return weighted_mean(parts)
 
 
 class TechnicalAnalysisAgent:
@@ -190,8 +176,8 @@ class TechnicalAnalysisAgent:
         # 先組內加權平均（TECH_SUBWEIGHTS 為組內相對權重，缺則重新歸一化），再組間 D3 融合。
         w = TECH_SUBWEIGHTS
         trend = ma_score                                              # trend 群：均線排列（方向 gate）
-        timing = _wmean([(w["percent_b"], cheap_pctb), (w["rsi"], cheap_rsi)])   # 回檔/超賣
-        momentum = _wmean([(w["kd"], kd_sc), (w["chip"], chip_sc)])              # KD + 籌碼 確認
+        timing = weighted_mean([(w["percent_b"], cheap_pctb), (w["rsi"], cheap_rsi)])   # 回檔/超賣
+        momentum = weighted_mean([(w["kd"], kd_sc), (w["chip"], chip_sc)])              # KD + 籌碼 確認
 
         n_used = sum(
             s is not None for s in (cheap_pctb, cheap_rsi, ma_score, kd_sc, chip_sc)

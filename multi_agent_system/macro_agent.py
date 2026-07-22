@@ -45,7 +45,7 @@ from config import (
 )
 
 from .contracts import AgentVerdict, MacroReading
-from .numerics import clamp, linear_map
+from .numerics import clamp, linear_map, weighted_mean
 
 AGENT_NAME = "MacroAgent"
 
@@ -87,17 +87,17 @@ class MacroeconomicAgent:
         w_sent = MACRO_SUBWEIGHTS["sentiment"]
 
         sentiment_available = news_sentiment_mean is not None
-        if sentiment_available:
-            sentiment_score = linear_map(
+        sentiment_score = (
+            linear_map(
                 float(news_sentiment_mean), SENTIMENT_RAW_MIN, SENTIMENT_RAW_MAX, 0.0, 1.0
             )
-            health = w_curve * curve_score + w_cpi * cpi_score + w_sent * sentiment_score
-        else:
-            # 重新歸一化 curve/cpi（不臆造中性情緒）。
-            renorm = w_curve + w_cpi
-            sentiment_score = None
-            health = (w_curve * curve_score + w_cpi * cpi_score) / renorm
-
+            if sentiment_available
+            else None
+        )
+        # 缺情緒 → weighted_mean 自動只歸一化 curve/cpi（不臆造中性情緒）。
+        health = weighted_mean(
+            [(w_curve, curve_score), (w_cpi, cpi_score), (w_sent, sentiment_score)]
+        )
         health = clamp(health, 0.0, 1.0)
 
         reason = self._build_reason(
