@@ -247,7 +247,9 @@ def make_subscriber_store(*, get_env=None, local_path: str | None = None) -> Sub
     - SUBSCRIBERS_BACKEND=github（或未設但有 GITHUB_TOKEN[_FILE] + GITHUB_REPO）→ GithubSubscriberStore
       （雲端 + NAS 共用 repo 內 JSON）。用 SUBSCRIBERS_REPO_PATH（預設 subscribers.json）/ GITHUB_BRANCH。
       token 來源：GITHUB_TOKEN 環境變數，或 GITHUB_TOKEN_FILE 指向的檔（同 mynews NAS bot 慣例）。
-    - 否則 → JsonSubscriberStore（本機檔，路徑 local_path > SUBSCRIBERS_FILE > subscribers.json）。
+    - 否則 → JsonSubscriberStore（本機檔，路徑 local_path > SUBSCRIBERS_FILE env > paths SSOT）。
+      落地位置走 paths.SUBSCRIBERS_FILE（data/），不再散落 repo root（別亂放檔案）；
+      既有 root subscribers.json 存在則向後相容沿用（見 _default_subscribers_path）。
 
     get_env 可注入（測試 / 讀 st.secrets 用），預設讀 os.environ。
     local_path 由 CLI flag（--subscribers / --store）傳入，優先於 SUBSCRIBERS_FILE。
@@ -264,7 +266,18 @@ def make_subscriber_store(*, get_env=None, local_path: str | None = None) -> Sub
             path=env("SUBSCRIBERS_REPO_PATH") or "subscribers.json",
             branch=env("GITHUB_BRANCH") or "main",
         )
-    return JsonSubscriberStore(local_path or env("SUBSCRIBERS_FILE") or "subscribers.json")
+    return JsonSubscriberStore(local_path or env("SUBSCRIBERS_FILE") or _default_subscribers_path())
+
+
+def _default_subscribers_path() -> str:
+    """本機 subscribers 落地預設（SSOT: paths.SUBSCRIBERS_FILE = data/）。
+
+    別亂放檔案：不再落 repo root 的 bare `subscribers.json`。但既有部署可能已有一顆
+    root subscribers.json（gitignore 的 per-machine 檔,含真實 userId）→ 存在則沿用不孤兒化。
+    """
+    from paths import LEGACY_SUBSCRIBERS_FILE, SUBSCRIBERS_FILE
+
+    return LEGACY_SUBSCRIBERS_FILE if os.path.exists(LEGACY_SUBSCRIBERS_FILE) else SUBSCRIBERS_FILE
 
 
 def store_is_github(*, get_env=None) -> bool:

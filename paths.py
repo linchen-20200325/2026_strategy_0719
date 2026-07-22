@@ -35,3 +35,10 @@ DEMO_DATA_DIR: Path = REPO_ROOT / "demo_data"
 # forward-test ledger（append-only JSONL）——大盤判讀 / 個股判讀各一檔。
 LEDGER_FILE: str = str(DATA_DIR / "ledger.jsonl")
 STOCK_LEDGER_FILE: str = str(DATA_DIR / "stock_ledger.jsonl")
+
+# LINE 盯盤訂閱者清單（本機 fallback；含真實 userId → gitignore,禁止入庫）。
+# 僅 `--per-user` 且未走 GitHub backend 時用；雲端/NAS 多走 GithubSubscriberStore（repo 內 JSON）。
+SUBSCRIBERS_FILE: str = str(DATA_DIR / "subscribers.json")
+# 向後相容：既有部署可能把 subscribers.json 留在 repo root（per-machine,gitignore）。
+# 存在則優先沿用,避免改預設把既有訂閱清單讀不到（不孤兒化使用者資料）。
+LEGACY_SUBSCRIBERS_FILE: str = str(REPO_ROOT / "subscribers.json")

@@ -136,6 +136,27 @@ def test_factory_local_path_overrides_env(tmp_path):
     assert store.path.endswith("x.json")
 
 
+def test_factory_default_lands_in_data_dir_not_root(tmp_path, monkeypatch):
+    # 別亂放檔案：無 env / 無 local_path / 無既有 root 檔 → 落 paths SSOT（data/），不散 repo root。
+    import paths
+    monkeypatch.setattr(paths, "LEGACY_SUBSCRIBERS_FILE", str(tmp_path / "nope_root.json"))
+    monkeypatch.setattr(paths, "SUBSCRIBERS_FILE", str(tmp_path / "data" / "subscribers.json"))
+    store = make_subscriber_store(get_env={}.get)
+    assert isinstance(store, JsonSubscriberStore)
+    assert store.path == str(tmp_path / "data" / "subscribers.json")
+
+
+def test_factory_default_prefers_existing_legacy_root(tmp_path, monkeypatch):
+    # 向後相容：既有 root subscribers.json 存在 → 沿用,不孤兒化使用者資料（真實 userId）。
+    import paths
+    legacy = tmp_path / "subscribers.json"
+    legacy.write_text('{"users": {}, "allow": []}', encoding="utf-8")
+    monkeypatch.setattr(paths, "LEGACY_SUBSCRIBERS_FILE", str(legacy))
+    monkeypatch.setattr(paths, "SUBSCRIBERS_FILE", str(tmp_path / "data" / "subscribers.json"))
+    store = make_subscriber_store(get_env={}.get)
+    assert store.path == str(legacy)
+
+
 def test_factory_github_when_token_and_repo():
     env = {"GITHUB_TOKEN": "t", "GITHUB_REPO": "owner/repo"}
     store = make_subscriber_store(get_env=env.get)

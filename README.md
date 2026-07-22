@@ -273,6 +273,7 @@ ruff check .    # lint
 | 類別 | 位置 | 定義處 | 入庫 |
 |---|---|---|---|
 | 本地 forward-test ledger | `data/`（`ledger.jsonl` / `stock_ledger.jsonl`） | `paths.DATA_DIR` | ❌ gitignore |
+| 訂閱者清單（本機 fallback） | `data/subscribers.json`（既有 root 檔存在則沿用） | `paths.SUBSCRIBERS_FILE` | ❌ gitignore |
 | 示範 DB（demo） | `demo_data/`（stock/fund/news.db） | `paths.DEMO_DATA_DIR` | ❌ gitignore |
 | 來源 DB（真實） | env `STOCK_DB` / `FUND_DB` / `NEWS_DB` | `pipeline.watchlist.load_db_paths` | ❌（外部 data 分支） |
 
