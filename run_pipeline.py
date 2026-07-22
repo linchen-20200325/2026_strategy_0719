@@ -173,9 +173,13 @@ def _run_market_digest(orchestrator: WorkflowOrchestrator, args) -> int:
         tally=tally_watchlist(results), tw_macro=tw_macro, night=night,
     )
     print(digest)
-    # 記錄本次大盤判讀進 ledger（forward-test 對帳用；record 失敗 loud log、絕不擋推播）。
+    # 記錄本次判讀進 ledger（forward-test 對帳用；record 失敗 loud log、絕不擋推播）。
     if args.record:
-        from multi_agent_system.ledger import record_market_regime, regime_of
+        from multi_agent_system.ledger import (
+            record_market_regime,
+            record_stock_judgments,
+            regime_of,
+        )
 
         reading = macro.get_reading()
         label, overall, _reasons = market_regime(reading, tw_macro, night, intl, tw)
@@ -183,6 +187,8 @@ def _run_market_digest(orchestrator: WorkflowOrchestrator, args) -> int:
             label=label, overall=overall, session=args.session,
             regime=regime_of(reading.yield_spread_pct),
         )
+        # A Phase 1：個股判讀也落帳（否則每檔訊號當天遺失；ref_close 順手自建價序列）。
+        record_stock_judgments(results, session=args.session)
     if args.dry_run:
         return 0
     try:

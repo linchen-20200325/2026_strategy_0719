@@ -27,6 +27,8 @@ from .report import (
     format_equity,
     format_report,
 )
+from .stock_recorder import record_stock_judgments
+from .stock_store import StockJudgment, append_stock_judgments, read_stock_judgments
 from .store import Judgment, append_judgment, read_judgments
 
 __all__ = [
@@ -48,4 +50,9 @@ __all__ = [
     "dedup_judgments",
     "format_equity",
     "format_report",
+    # A Phase 1 — 個股判讀 forward-test（止血落帳；對帳於 Phase 2）
+    "StockJudgment",
+    "append_stock_judgments",
+    "read_stock_judgments",
+    "record_stock_judgments",
 ]
