@@ -1,4 +1,4 @@
-"""recorder.py — 把大盤判讀寫進 ledger（record 階段）。L2。
+"""recorder.py — 把大盤判讀寫進 ledger（record 階段）。L3 Service（持久化編排,呼叫 L1 store；fail-soft 不擋推播）。
 
 在 pipeline 推播完後呼叫，將 market_regime 的 (label, overall) 存成一筆 Judgment。
 **record 失敗不可擋推播**（§8.1 #5 失敗降級）：loud log + 回 None（fail token），不 raise。

@@ -1,4 +1,4 @@
-"""report.py — ledger 對帳聚合（stateless）。L2 純函式。
+"""report.py — ledger 對帳聚合（stateless）。L2 聚合純函式 + 文字格式化（format_report/format_equity，待 V3 抽文字渲染層）。
 
 讀入判讀清單 + 當前 market_index 交易日 open 序列 → 逐筆 reconcile → 聚合命中率。
 **每次重算**（不依賴任何落地的評分狀態）→ 冪等、無漂移。純函式、無 I/O。
