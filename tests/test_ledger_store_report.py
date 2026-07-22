@@ -121,3 +121,20 @@ def test_format_report_small_sample_flag():
     txt = format_report(build_report(js, bars, horizon_n=5, band=0.005))
     assert "判讀對帳" in txt and "T+5" in txt
     assert "樣本少，僅供參考" in txt                   # n=1 < 30 → 旗標
+
+
+# ------------------------------------------------------------------ CLI 記錄整合
+def test_cli_market_digest_record_writes_ledger(tmp_path, monkeypatch):
+    # --record 在 broadcast 跑完後把大盤判讀 append 進 LEDGER_FILE（demo + dry-run，不需 token）。
+    monkeypatch.setenv("LEDGER_FILE", str(tmp_path / "ledger.jsonl"))
+    import run_pipeline
+
+    rc = run_pipeline.main(
+        ["--session", "morning", "--demo", "--market-digest", "--record", "--dry-run"]
+    )
+    assert rc == 0
+    js = read_judgments(path=str(tmp_path / "ledger.jsonl"))
+    assert len(js) == 1
+    assert js[0].session == "morning"
+    assert js[0].label in (REGIME_LABEL_BULL, REGIME_LABEL_NEUTRAL, REGIME_LABEL_BEAR)
+    assert 0.0 <= js[0].overall <= 1.0

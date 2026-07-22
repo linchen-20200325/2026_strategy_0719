@@ -1,0 +1,63 @@
+# 判讀 forward-test 對帳報表 — 每週把「大盤判讀命中率」推到 LINE。
+#
+# 讀:my-stock-dashboard@data 的 stock.db(market_index 歷史 open) + 本 repo ledger 分支的
+#     ledger.jsonl(累積判讀) → stateless 對帳 → format_report → broadcast。
+# 判讀由 run_pipeline.yml(盤前/收盤後)累積;本 workflow 只讀不寫,故 contents: read 即可。
+#
+# Secrets:DATA_REPO_TOKEN(讀 my-stock data 分支) + LINE_CHANNEL_ACCESS_TOKEN(broadcast)。
+
+name: ledger-report
+
+on:
+  schedule:
+    - cron: "0 1 * * 6"   # 每週六 09:00 TW（週末回顧上週判讀命中率）= 01:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout 2026（本系統）
+        uses: actions/checkout@v4
+
+      - name: Checkout stock.db（my-stock-dashboard@data，取 market_index）
+        uses: actions/checkout@v4
+        with:
+          repository: linchen-20200325/my-stock-dashboard
+          ref: data
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+          path: _data/stock
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install deps
+        run: pip install "pandas>=2.0,<4.0" "numpy>=1.24"
+
+      - name: 取回 ledger.jsonl（判讀累積;尚無則後續誠實顯示「無判讀」）
+        env:
+          GIT_TOKEN: ${{ github.token }}
+        run: |
+          REMOTE="https://x-access-token:${GIT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth 1 "$REMOTE" ledger 2>/dev/null \
+            && git cat-file -p FETCH_HEAD:ledger.jsonl > ledger.jsonl 2>/dev/null \
+            && echo "取回 ledger（$(wc -l < ledger.jsonl) 列）" \
+            || echo "尚無 ledger.jsonl → 報表顯示無判讀"
+
+      - name: 對帳報表 → broadcast
+        env:
+          STOCK_DB: _data/stock/stock.db
+          LEDGER_FILE: ledger.jsonl
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+        run: |
+          LINE=""
+          if [ -n "${LINE_CHANNEL_ACCESS_TOKEN}" ]; then LINE="--line"; else
+            echo "::warning::未設 LINE_CHANNEL_ACCESS_TOKEN → 只印不推";
+          fi
+          python scripts/ledger_report.py $LINE

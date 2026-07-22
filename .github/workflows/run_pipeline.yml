@@ -31,7 +31,7 @@ on:
         default: "morning"
 
 permissions:
-  contents: read
+  contents: write   # 判讀存回本 repo 的 ledger 分支需寫入（走內建 GITHUB_TOKEN）
 
 jobs:
   broadcast:
@@ -95,12 +95,26 @@ jobs:
             echo "✅ $f ($(du -h "$f" | cut -f1))"
           done
 
-      - name: Broadcast 市場快訊
+      - name: 取回既有 ledger.jsonl（累積判讀；ledger 分支首次不存在則從空開始）
+        env:
+          GIT_TOKEN: ${{ github.token }}
+        run: |
+          REMOTE="https://x-access-token:${GIT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git fetch --depth 1 "$REMOTE" ledger 2>/dev/null; then
+            git cat-file -p FETCH_HEAD:ledger.jsonl > ledger.jsonl 2>/dev/null \
+              && echo "取回既有 ledger（$(wc -l < ledger.jsonl) 列）" \
+              || echo "ledger 分支無 ledger.jsonl → 從空開始"
+          else
+            echo "ledger 分支尚不存在 → 從空開始"
+          fi
+
+      - name: Broadcast 市場快訊 + 記錄大盤判讀
         env:
           FUND_DB: _data/fund/fund.db
           STOCK_DB: _data/stock/stock.db
           NEWS_DB: _data/news/news.db
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LEDGER_FILE: ledger.jsonl
         run: |
           # 未設 LINE token（例如手動排練）→ 加 --dry-run 只印不推，避免 workflow 失敗。
           DRY=""
@@ -108,4 +122,22 @@ jobs:
             echo "::warning::未設 LINE_CHANNEL_ACCESS_TOKEN → --dry-run 只預覽不推播"
             DRY="--dry-run"
           fi
-          python run_pipeline.py --session "${{ steps.sess.outputs.session }}" --market-digest $DRY
+          python run_pipeline.py --session "${{ steps.sess.outputs.session }}" --market-digest --record $DRY
+
+      - name: 存回 ledger.jsonl → ledger 分支（orphan force-push，全歷史留在檔內）
+        if: hashFiles('ledger.jsonl') != ''
+        env:
+          GIT_TOKEN: ${{ github.token }}
+        run: |
+          REMOTE="https://x-access-token:${GIT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          tmp="$(mktemp -d)"; cp ledger.jsonl "$tmp/ledger.jsonl"; cd "$tmp"
+          git init -q && git checkout -q -b ledger
+          git config user.email "noreply@anthropic.com"
+          git config user.name "Claude"
+          git add ledger.jsonl
+          git -c commit.gpgsign=false commit -q -m "chore(ledger): 判讀累積 $(date -u +%FT%TZ)"
+          if git push -f "$REMOTE" ledger; then
+            echo "ledger 已存回（$(wc -l < ledger.jsonl) 列）"
+          else
+            echo "::warning::ledger push 失敗（本次判讀未持久化；廣播已完成）"
+          fi
