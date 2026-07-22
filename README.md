@@ -229,6 +229,7 @@ ruff check .    # lint
 ```
 2026_strategy_0719/
 ├── config.py                     # SSOT：權重 / 門檻 / 參數
+├── paths.py                      # SSOT：資料落地路徑（別亂放資料，見下表）
 ├── main.py                       # CLI Demo 入口
 ├── dashboard.py                  # Streamlit 展示頁（streamlit run dashboard.py）
 ├── run_pipeline.py               # 排程 CLI（cron / Actions 呼叫）
@@ -244,6 +245,11 @@ ruff check .    # lint
 │   ├── allocation_agent.py       # ④ 配置專家
 │   ├── strategy_agent.py         # ⑤ 策略融合
 │   ├── integration_agent.py      # ⑥ 編排 + Mock 券商
+│   ├── ledger/                   # forward-test 判讀對帳（append-only JSONL）
+│   │   ├── store.py              #    大盤判讀持久化（落地走 paths SSOT）
+│   │   ├── stock_store.py        #    個股判讀持久化（落地走 paths SSOT）
+│   │   ├── reconcile.py          #    單筆對帳（open-to-open，無 lookahead）
+│   │   └── report.py             #    stateless 聚合命中率 + 淨值
 │   ├── pipeline/                 # 排程層（無 streamlit）
 │   │   ├── watchlist.py          #    觀察清單 + DB 路徑（env）
 │   │   ├── freshness.py          #    新鮮度守門（Fail-Loud）
@@ -258,3 +264,18 @@ ruff check .    # lint
 ├── scripts/seed_demo_dbs.py      # 產生示範資料庫
 └── tests/                        # pytest（90 個：含 AppTest + 排程/新鮮度）
 ```
+
+### 資料落地位置（SSOT：`paths.py`）
+
+「別亂放資料」：執行期產生的檔案落地位置**只在 `paths.py` 定義一次**，以 repo 根為錨
+（與 CWD 無關 → 從任何目錄跑都進同一個分類好的位置，不再散落到 repo root）。
+
+| 類別 | 位置 | 定義處 | 入庫 |
+|---|---|---|---|
+| 本地 forward-test ledger | `data/`（`ledger.jsonl` / `stock_ledger.jsonl`） | `paths.DATA_DIR` | ❌ gitignore |
+| 示範 DB（demo） | `demo_data/`（stock/fund/news.db） | `paths.DEMO_DATA_DIR` | ❌ gitignore |
+| 來源 DB（真實） | env `STOCK_DB` / `FUND_DB` / `NEWS_DB` | `pipeline.watchlist.load_db_paths` | ❌（外部 data 分支） |
+
+**覆寫順序**：顯式 `path=` 參數 > 環境變數（`LEDGER_FILE` / `STOCK_LEDGER_FILE`）> `paths.py` 預設。
+CI（`run_pipeline.yml`）以 env 指定 bare 檔名並存回 **ledger 分支**（扁平 data 分支,刻意）；
+本地不設 env → 落到 `data/`。兩者互不干擾。

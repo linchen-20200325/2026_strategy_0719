@@ -14,8 +14,7 @@ import os
 from dataclasses import asdict, dataclass
 
 from config import REGIME_UNTAGGED
-
-DEFAULT_LEDGER_FILE = "ledger.jsonl"
+from paths import LEDGER_FILE as DEFAULT_LEDGER_FILE  # 落地位置 SSOT（見 paths.py）
 
 
 @dataclass(frozen=True)
