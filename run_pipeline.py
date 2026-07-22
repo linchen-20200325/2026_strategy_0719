@@ -134,6 +134,7 @@ def _run_market_digest(orchestrator: WorkflowOrchestrator, args) -> int:
     from multi_agent_system.macro_db import read_tw_macro, read_tw_night
     from multi_agent_system.market_digest import (
         build_market_digest,
+        market_regime,
         summarize_news,
         tally_watchlist,
     )
@@ -172,6 +173,14 @@ def _run_market_digest(orchestrator: WorkflowOrchestrator, args) -> int:
         tally=tally_watchlist(results), tw_macro=tw_macro, night=night,
     )
     print(digest)
+    # 記錄本次大盤判讀進 ledger（forward-test 對帳用；record 失敗 loud log、絕不擋推播）。
+    if args.record:
+        from multi_agent_system.ledger import record_market_regime
+
+        label, overall, _reasons = market_regime(
+            macro.get_reading(), tw_macro, night, intl, tw
+        )
+        record_market_regime(label=label, overall=overall, session=args.session)
     if args.dry_run:
         return 0
     try:
@@ -206,6 +215,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--market-digest", action="store_true",
         help="改推『國際情勢+台股』市場快訊 → broadcast 全體好友（同 mynews 主報告）",
+    )
+    parser.add_argument(
+        "--record", action="store_true",
+        help="把本次大盤判讀存進 ledger（--market-digest 用；forward-test 對帳）。"
+             "路徑走 env LEDGER_FILE（預設 ledger.jsonl）",
     )
     args = parser.parse_args(argv)
 
