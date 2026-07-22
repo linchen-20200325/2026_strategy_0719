@@ -104,6 +104,10 @@ jobs:
             git cat-file -p FETCH_HEAD:ledger.jsonl > ledger.jsonl 2>/dev/null \
               && echo "取回既有 ledger（$(wc -l < ledger.jsonl) 列）" \
               || echo "ledger 分支無 ledger.jsonl → 從空開始"
+            # A Phase 1：個股判讀 ledger（同分支第二檔；首次不存在則從空開始）
+            git cat-file -p FETCH_HEAD:stock_ledger.jsonl > stock_ledger.jsonl 2>/dev/null \
+              && echo "取回既有 stock_ledger（$(wc -l < stock_ledger.jsonl) 列）" \
+              || echo "ledger 分支無 stock_ledger.jsonl → 從空開始"
           else
             echo "ledger 分支尚不存在 → 從空開始"
           fi
@@ -115,6 +119,7 @@ jobs:
           NEWS_DB: _data/news/news.db
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LEDGER_FILE: ledger.jsonl
+          STOCK_LEDGER_FILE: stock_ledger.jsonl   # A Phase 1：個股判讀落帳
         run: |
           # 未設 LINE token（例如手動排練）→ 加 --dry-run 只印不推，避免 workflow 失敗。
           DRY=""
@@ -130,14 +135,18 @@ jobs:
           GIT_TOKEN: ${{ github.token }}
         run: |
           REMOTE="https://x-access-token:${GIT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          tmp="$(mktemp -d)"; cp ledger.jsonl "$tmp/ledger.jsonl"; cd "$tmp"
+          tmp="$(mktemp -d)"; cp ledger.jsonl "$tmp/ledger.jsonl"
+          # A Phase 1：個股判讀 ledger 一併存回同分支（存在才帶）
+          [ -f stock_ledger.jsonl ] && cp stock_ledger.jsonl "$tmp/stock_ledger.jsonl"
+          cd "$tmp"
           git init -q && git checkout -q -b ledger
           git config user.email "noreply@anthropic.com"
           git config user.name "Claude"
           git add ledger.jsonl
+          [ -f stock_ledger.jsonl ] && git add stock_ledger.jsonl
           git -c commit.gpgsign=false commit -q -m "chore(ledger): 判讀累積 $(date -u +%FT%TZ)"
           if git push -f "$REMOTE" ledger; then
-            echo "ledger 已存回（$(wc -l < ledger.jsonl) 列）"
+            echo "ledger 已存回（大盤 $(wc -l < ledger.jsonl) 列 / 個股 $([ -f stock_ledger.jsonl ] && wc -l < stock_ledger.jsonl || echo 0) 列）"
           else
             echo "::warning::ledger push 失敗（本次判讀未持久化；廣播已完成）"
           fi

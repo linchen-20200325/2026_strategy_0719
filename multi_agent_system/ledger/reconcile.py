@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from math import sqrt
 
 from config import REGIME_LABEL_BEAR, REGIME_LABEL_BULL, REGIME_LABEL_NEUTRAL
 
@@ -74,6 +75,23 @@ def classify_hit(label: str, fwd_ret: float, band: float) -> bool:
         f"未知判讀 label：{label!r}（應為 "
         f"{REGIME_LABEL_BULL}/{REGIME_LABEL_NEUTRAL}/{REGIME_LABEL_BEAR}）"
     )
+
+
+def horizon_band(daily_band: float, horizon_n: int) -> float:
+    """把「每日 no-move 容差」放大到 N 交易日視窗尺度（隨機漫步 vol ∝ √時間）。
+
+    修正 band bug：0.5% 這種**日尺度**容差直接套在 **20 交易日**前瞻報酬上 → 中性命中
+    條件「|月報酬| ≤ 0.5%」幾乎不可能成立 → 中性桶結構性接近 0% 命中。放大後
+    有效容差 = daily_band × √horizon_n（如 0.5% × √20 ≈ 2.24%），才是「一個月幾乎
+    沒動」的合理尺度。非新增臆造常數，而是用隨機漫步原理從日換算到視窗。
+
+    負 daily_band / 非正 horizon → raise（Fail-Loud，§1）。
+    """
+    if daily_band < 0:
+        raise ValueError(f"daily_band 不可為負：{daily_band!r}")
+    if horizon_n <= 0:
+        raise ValueError(f"horizon_n 必須為正：{horizon_n!r}")
+    return daily_band * sqrt(horizon_n)
 
 
 def _entry_index(bars: list[PriceBar], judged_date: date, session: str) -> int | None:

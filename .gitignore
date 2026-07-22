@@ -31,3 +31,7 @@ env/
 .idea/
 *.swp
 .DS_Store
+
+# ledger runtime artifacts（CI 寫入後 force-push 到 ledger 分支,不入主分支）
+ledger.jsonl
+stock_ledger.jsonl

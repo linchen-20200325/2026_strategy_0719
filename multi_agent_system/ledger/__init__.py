@@ -14,10 +14,22 @@ from .reconcile import (
     ReconcileOutcome,
     classify_hit,
     forward_return,
+    horizon_band,
     reconcile,
 )
-from .recorder import record_market_regime
-from .report import BucketStat, LedgerReport, build_report, dedup_judgments, format_report
+from .recorder import record_market_regime, regime_of
+from .report import (
+    BucketStat,
+    EquityReport,
+    LedgerReport,
+    build_equity,
+    build_report,
+    dedup_judgments,
+    format_equity,
+    format_report,
+)
+from .stock_recorder import record_stock_judgments
+from .stock_store import StockJudgment, append_stock_judgments, read_stock_judgments
 from .store import Judgment, append_judgment, read_judgments
 
 __all__ = [
@@ -25,14 +37,24 @@ __all__ = [
     "ReconcileOutcome",
     "classify_hit",
     "forward_return",
+    "horizon_band",
     "reconcile",
     "Judgment",
     "append_judgment",
     "read_judgments",
     "record_market_regime",
+    "regime_of",
     "BucketStat",
+    "EquityReport",
     "LedgerReport",
+    "build_equity",
     "build_report",
     "dedup_judgments",
+    "format_equity",
     "format_report",
+    # A Phase 1 — 個股判讀 forward-test（止血落帳；對帳於 Phase 2）
+    "StockJudgment",
+    "append_stock_judgments",
+    "read_stock_judgments",
+    "record_stock_judgments",
 ]
