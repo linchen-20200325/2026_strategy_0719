@@ -49,6 +49,7 @@ class LedgerReport:
     horizon_n: int
     band: float                         # 視窗**有效**容差（日容差 × √horizon）
     base_rates: dict = field(default_factory=dict)  # label -> 基準命中率（always-該桶；漂移 base rate）
+    n_simulated: int = 0                # 模擬總經判讀（排除不計成績；F Fail-Loud）
 
 
 def dedup_judgments(judgments: list[Judgment]) -> list[Judgment]:
@@ -81,11 +82,15 @@ def build_report(
     hits = {b: 0 for b in _BUCKETS}
     rets: dict[str, list[float]] = {b: [] for b in _BUCKETS}
     base_cnt = {b: 0 for b in _BUCKETS}   # 市場實際走勢分布（always-該桶 基準；漂移 base rate）
-    n_scored = n_pending = 0
+    n_scored = n_pending = n_simulated = 0
     reg_n: dict[str, int] = {}      # 分 regime：僅方向判讀（偏多/偏空）
     reg_hits: dict[str, int] = {}
 
     for j in deduped:
+        # F：模擬/注入總經的判讀 → 排除不計成績（§1 錯值比缺值危險，不讓假總經污染 track record）。
+        if getattr(j, "is_simulated", False):
+            n_simulated += 1
+            continue
         out = reconcile(
             label=j.label, judged_date=date.fromisoformat(j.judged_date),
             session=j.session, bars=bars, horizon_n=horizon_n, band=band,
@@ -130,14 +135,15 @@ def build_report(
         n_total=len(deduped), n_scored=n_scored, n_pending=n_pending,
         directional_hit_rate=(dh / dn if dn else None), directional_n=dn,
         buckets=buckets, by_regime=by_regime, horizon_n=horizon_n, band=band,
-        base_rates=base_rates,
+        base_rates=base_rates, n_simulated=n_simulated,
     )
 
 
 def format_report(rep: LedgerReport) -> str:
     """對帳報表 → 純文字（console / LINE 共用）。"""
     lines = [f"📒 判讀對帳（forward-test T+{rep.horizon_n} 交易日，容差 ±{rep.band:.1%}）"]
-    lines.append(f"樣本 {rep.n_total} 筆：已對帳 {rep.n_scored} / 未到期 {rep.n_pending}")
+    sim = f" / 模擬排除 {rep.n_simulated}" if rep.n_simulated else ""
+    lines.append(f"樣本 {rep.n_total} 筆：已對帳 {rep.n_scored} / 未到期 {rep.n_pending}{sim}")
 
     if rep.directional_hit_rate is None:
         lines.append("方向命中率：尚無已對帳樣本（等 T+N 到期）")

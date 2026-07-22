@@ -28,6 +28,8 @@ class Judgment:
     label       偏多 / 中性 / 偏空（走 config REGIME_LABEL_* SSOT）
     overall     綜合偏多度 ∈ [0,1]
     regime      判讀當下市場 regime（殖利率曲線：倒掛/正常）；舊列無此欄 → 未標記
+    is_simulated 判讀所依總經是否為**模擬/注入值**（非真實 fund.db/API）。True → 對帳時
+                 **排除、不計入成績**（§1：模擬值不可當實測污染 track record）；舊列 → False
     """
 
     judged_at: str
@@ -36,6 +38,7 @@ class Judgment:
     label: str
     overall: float
     regime: str = REGIME_UNTAGGED
+    is_simulated: bool = False
 
 
 def _path(path: str | None) -> str:

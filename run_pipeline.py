@@ -183,12 +183,16 @@ def _run_market_digest(orchestrator: WorkflowOrchestrator, args) -> int:
 
         reading = macro.get_reading()
         label, overall, _reasons = market_regime(reading, tw_macro, night, intl, tw)
+        # F：模擬/注入總經 → 判讀帶 is_simulated=True,對帳排除不污染成績（§1 Fail-Loud）。
         record_market_regime(
             label=label, overall=overall, session=args.session,
             regime=regime_of(reading.yield_spread_pct),
+            is_simulated=reading.is_simulated,
         )
         # A Phase 1：個股判讀也落帳（否則每檔訊號當天遺失；ref_close 順手自建價序列）。
-        record_stock_judgments(results, session=args.session)
+        record_stock_judgments(
+            results, session=args.session, is_simulated=reading.is_simulated
+        )
     if args.dry_run:
         return 0
     try:

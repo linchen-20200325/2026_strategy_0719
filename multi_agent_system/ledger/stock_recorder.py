@@ -25,6 +25,7 @@ def record_stock_judgments(
     results: Iterable,
     *,
     session: str,
+    is_simulated: bool = False,
     when: datetime | None = None,
     path: str | None = None,
 ) -> int:
@@ -32,6 +33,7 @@ def record_stock_judgments(
 
     results：orchestrator.run_batch(...) 輸出（各帶 decision + packet）。
     ref_close 取 packet.technical.close（缺技術面 → None，仍記判讀，不捏價，§1）。
+    is_simulated：總經是否為模擬值（reading.is_simulated）。True → Phase 2 對帳應排除（§1）。
     """
     try:
         stamp = when or now_tw()
@@ -52,6 +54,7 @@ def record_stock_judgments(
                     abstained=bool(d.abstained),
                     ref_close=(float(tech.close) if tech is not None else None),
                     ref_as_of=(tech.as_of if tech is not None else None),
+                    is_simulated=bool(is_simulated),
                 )
             )
         n = append_stock_judgments(js, path=path)

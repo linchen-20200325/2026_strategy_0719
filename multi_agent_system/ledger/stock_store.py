@@ -32,6 +32,7 @@ class StockJudgment:
     abstained    是否棄權（資料不足未下判讀 → Phase 2 對帳應排除）
     ref_close    判讀當下該股參考收盤（元；自建價序列 + 對帳 entry 參考）；缺技術面 → None
     ref_as_of    ref_close 歸屬交易日 YYYY-MM-DD（技術快照 as_of，非抓取日）；缺 → None
+    is_simulated 判讀所依總經是否為模擬/注入值（非真實）。True → Phase 2 對帳應排除（§1）；舊列 → False
     """
 
     judged_at: str
@@ -43,6 +44,7 @@ class StockJudgment:
     abstained: bool
     ref_close: float | None
     ref_as_of: str | None
+    is_simulated: bool = False
 
 
 def _path(path: str | None) -> str:
