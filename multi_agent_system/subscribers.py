@@ -28,7 +28,7 @@ from typing import Protocol
 
 from config import DEFAULT_MAX_WEIGHT_RATIO, DEFAULT_WEIGHT_RATIO
 
-from .pipeline.watchlist import WatchItem
+from .contracts import WatchItem
 
 
 class SubscriberStoreError(RuntimeError):

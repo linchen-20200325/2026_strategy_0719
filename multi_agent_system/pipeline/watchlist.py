@@ -10,12 +10,11 @@ DB 路徑由環境變數提供,避免把絕對路徑寫死在程式（部署到 
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from config import DEFAULT_MAX_WEIGHT_RATIO, DEFAULT_WEIGHT_RATIO
+from config import DEFAULT_WEIGHT_RATIO
 
-from ..contracts import PortfolioState
+from ..contracts import WatchItem  # 核心 DTO 已下沉 contracts(L0)，此處 re-export 供既有 caller
 
 # pandas 只在下方兩個 UI 編輯表 helper 用到，故**惰性 import**（放函式內）——
 # 讓「只要 WatchItem」的輕量 caller（NAS webhook bot）不必安裝 pandas（NAS 零安裝部署）。
@@ -25,24 +24,6 @@ if TYPE_CHECKING:
 
 # UI 編輯表欄位（st.data_editor 用;為顯示標籤,轉換邏輯集中在本檔）
 DF_COLUMNS = ["類別", "代號", "連動美股/基金", "新聞關鍵字", "權重", "Sharpe"]
-
-
-@dataclass(frozen=True)
-class WatchItem:
-    tw_stock_id: str
-    us_stock_id: str
-    keywords: tuple[str, ...]
-    current_weight_ratio: float
-    max_weight_ratio: float = DEFAULT_MAX_WEIGHT_RATIO
-    sharpe: float | None = None
-    category: str = "台股"        # 台股 / ETF / 基金（供 UI 分組;不影響 pipeline 計算）
-
-    def portfolio_state(self) -> PortfolioState:
-        return PortfolioState(
-            current_weight_ratio=self.current_weight_ratio,
-            max_weight_ratio=self.max_weight_ratio,
-            sharpe=self.sharpe,
-        )
 
 
 # 範例清單（請替換為你的實際持股/觀察組合）。

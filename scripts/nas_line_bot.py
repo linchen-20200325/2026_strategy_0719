@@ -71,8 +71,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import DEFAULT_WEIGHT_RATIO  # noqa: E402
+from multi_agent_system.contracts import WatchItem  # noqa: E402
 from multi_agent_system.infra.http import HttpError, request_json  # noqa: E402
-from multi_agent_system.pipeline import WatchItem  # noqa: E402
 from multi_agent_system.subscribers import (  # noqa: E402
     SubscriberStore,
     SubscriberStoreError,

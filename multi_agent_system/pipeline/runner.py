@@ -18,12 +18,11 @@ from datetime import date, datetime, timezone
 
 from config import SESSION_LABELS
 
-from ..contracts import Action, CycleResult
+from ..contracts import Action, CycleResult, WatchItem
 from ..integration_agent import ResearchRequest, WorkflowOrchestrator
 from ..macro_providers import MacroDataProvider
 from ..notifications import ACTION_EMOJI, Notifier, format_notification, should_notify
 from .freshness import FreshnessReport, check_freshness
-from .watchlist import WatchItem
 
 logger = logging.getLogger("multi_agent_system.pipeline")
 

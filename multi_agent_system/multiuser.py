@@ -16,6 +16,7 @@ from typing import Protocol
 
 from config import today_tw
 
+from .contracts import WatchItem
 from .integration_agent import WorkflowOrchestrator
 from .line_push import LinePusher, LinePushError
 from .macro_providers import MacroDataProvider
@@ -25,7 +26,6 @@ from .pipeline import (
     format_bullish_digest,
     format_watch_digest,
 )
-from .pipeline.watchlist import WatchItem
 
 logger = logging.getLogger("multi_agent_system.multiuser")
 

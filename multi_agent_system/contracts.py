@@ -15,6 +15,8 @@ import enum
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from config import DEFAULT_MAX_WEIGHT_RATIO
+
 
 def utc_now() -> datetime:
     """統一以 UTC 產生 fetched_at（顯示時再轉本地 UTC+8）。"""
@@ -296,3 +298,23 @@ class CycleResult:
     decision: FinalDecision
     packet: DataPacket
     receipt: OrderReceipt | None = None
+
+
+@dataclass(frozen=True)
+class WatchItem:
+    """觀察清單一檔（UI 編輯表 / 訂閱清單 / pipeline 共用的核心 DTO）。"""
+
+    tw_stock_id: str
+    us_stock_id: str
+    keywords: tuple[str, ...]
+    current_weight_ratio: float
+    max_weight_ratio: float = DEFAULT_MAX_WEIGHT_RATIO
+    sharpe: float | None = None
+    category: str = "台股"        # 台股 / ETF / 基金（供 UI 分組；不影響 pipeline 計算）
+
+    def portfolio_state(self) -> PortfolioState:
+        return PortfolioState(
+            current_weight_ratio=self.current_weight_ratio,
+            max_weight_ratio=self.max_weight_ratio,
+            sharpe=self.sharpe,
+        )

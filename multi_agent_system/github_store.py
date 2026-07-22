@@ -17,8 +17,8 @@ from __future__ import annotations
 import base64
 import json
 
+from .contracts import WatchItem
 from .infra.http import HttpError, request_json
-from .pipeline.watchlist import WatchItem
 from .subscribers import (
     SubscriberStoreError,
     allow_ids_of,
