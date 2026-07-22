@@ -28,6 +28,9 @@ from config import (
     NIGHT_SMALL_MOVE_PCT,
     PMI_EXPANSION_LEVEL,
     PMI_REGIME_SPAN,
+    REGIME_LABEL_BEAR,
+    REGIME_LABEL_BULL,
+    REGIME_LABEL_NEUTRAL,
     SENTIMENT_RAW_MAX,
     SENTIMENT_RAW_MIN,
     SESSION_LABELS,
@@ -157,12 +160,12 @@ def _news_block(icon_label: str, stat: NewsStat) -> list[str]:
 
 
 def _regime_word(score: float) -> str:
-    """綜合偏多度 [0,1] → 偏多 / 中性 / 偏空（門檻走 config SSOT）。"""
+    """綜合偏多度 [0,1] → 偏多 / 中性 / 偏空（門檻 + 標籤字串皆走 config SSOT）。"""
     if score >= MARKET_REGIME_BULL_MIN:
-        return "偏多"
+        return REGIME_LABEL_BULL
     if score <= MARKET_REGIME_BEAR_MAX:
-        return "偏空"
-    return "中性"
+        return REGIME_LABEL_BEAR
+    return REGIME_LABEL_NEUTRAL
 
 
 def _sentiment_bull(mean: float) -> float:
