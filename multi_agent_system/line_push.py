@@ -17,14 +17,12 @@ Fail-Loud:缺 token/對象 → raise;HTTP 非 2xx / 連線失敗 → raise（不
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
-import urllib.error
-import urllib.request
 
 from .contracts import FinalDecision
+from .infra.http import HttpError, request_json
 from .notifications import format_notification, should_notify
 
 logger = logging.getLogger("multi_agent_system.line")
@@ -91,29 +89,18 @@ class LinePusher:
         messages = [{"type": "text", "text": text[:_MAX_TEXT_LEN]}]
         endpoint, body, mode = self._resolve_target(messages)
         logger.info("LINE 推播模式：%s", mode)  # 只印模式,不印任何 ID（避免外洩）
-        data = json.dumps(body, ensure_ascii=False).encode("utf-8")
-        req = urllib.request.Request(
-            endpoint,
-            data=data,
-            method="POST",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.token}",
-            },
-        )
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                status = getattr(resp, "status", None)
-                if status is None:
-                    status = resp.getcode()
-                if status // 100 != 2:
-                    body = resp.read().decode("utf-8", "replace")
-                    raise LinePushError(f"LINE API 回 {status}：{body}")
-        except urllib.error.HTTPError as exc:
-            body = exc.read().decode("utf-8", "replace")
-            raise LinePushError(f"LINE API HTTP {exc.code}：{body}") from exc
-        except urllib.error.URLError as exc:
-            raise LinePushError(f"LINE API 連線失敗：{exc.reason}") from exc
+            status, raw = request_json(
+                "POST", endpoint, body=body, timeout=self.timeout,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.token}",
+                },
+            )
+        except HttpError as exc:
+            raise LinePushError(f"LINE API 連線失敗：{exc}") from exc
+        if status // 100 != 2:
+            raise LinePushError(f"LINE API 回 {status}：{raw.decode('utf-8', 'replace')}")
 
 
 class LineNotifier:

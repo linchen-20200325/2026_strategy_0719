@@ -16,9 +16,8 @@ from __future__ import annotations
 
 import base64
 import json
-import urllib.error
-import urllib.request
 
+from .infra.http import HttpError, request_json
 from .pipeline.watchlist import WatchItem
 from .subscribers import (
     SubscriberStoreError,
@@ -58,25 +57,17 @@ class GithubSubscriberStore:
 
     # ── HTTP（抽成一個方法，測試可 monkeypatch，不需真打 GitHub）───────────────
     def _request(self, method: str, url: str, body: dict | None = None) -> tuple[int, bytes]:
-        data = json.dumps(body).encode("utf-8") if body is not None else None
-        req = urllib.request.Request(
-            url, data=data, method=method,
-            headers={
-                "Authorization": f"Bearer {self.token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
-        )
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                status = getattr(resp, "status", None)
-                if status is None:
-                    status = resp.getcode()
-                return status, resp.read()
-        except urllib.error.HTTPError as exc:
-            return exc.code, exc.read()
-        except urllib.error.URLError as exc:
-            raise SubscriberStoreError(f"GitHub API 連線失敗：{exc.reason}") from exc
+            return request_json(
+                method, url, body=body, timeout=self.timeout,
+                headers={
+                    "Authorization": f"Bearer {self.token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+        except HttpError as exc:
+            raise SubscriberStoreError(f"GitHub API 連線失敗：{exc}") from exc
 
     # ── 讀取：回 (doc, sha)。404 → (空 doc, None)。doc = {"users":..,"allow":..} ──
     def _load(self) -> tuple[dict, str | None]:
