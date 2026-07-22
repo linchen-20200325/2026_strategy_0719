@@ -14,6 +14,7 @@ from .reconcile import (
     ReconcileOutcome,
     classify_hit,
     forward_return,
+    horizon_band,
     reconcile,
 )
 from .recorder import record_market_regime, regime_of
@@ -36,6 +37,7 @@ __all__ = [
     "ReconcileOutcome",
     "classify_hit",
     "forward_return",
+    "horizon_band",
     "reconcile",
     "Judgment",
     "append_judgment",

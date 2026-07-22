@@ -203,8 +203,10 @@ REGIME_LABEL_BEAR: str = "偏空"
 # 把每次「大盤判讀」存檔，T+N 交易日後用 market_index 實際 open-to-open 報酬對帳，
 # 產出命中率 —— 系統自我 track record。forward-test（只評分過去、結構上不可能 lookahead）。
 LEDGER_HORIZON_TRADING_DAYS: int = 20   # 對帳前瞻視窗（交易日，≈1 個月；market_index 每列=一交易日）
-# 命中容差（報酬**比例**非百分點，§4.1）：|forward_return| <= 此值視為「持平」，濾掉微幅雜訊。
-LEDGER_HIT_BAND_RATIO: float = 0.005    # 0.5%
+# 命中容差 —— **每日** no-move 尺度（報酬比例非百分點，§4.1）。對帳時由 report 端
+# `horizon_band()` × √horizon 放大到視窗尺度（如 20 日 → 0.5%×√20 ≈ 2.24%），才是「一個月
+# 幾乎沒動」的合理閾值；否則日尺度容差硬套月報酬 → 中性桶結構性 0% 命中（band bug）。
+LEDGER_HIT_BAND_RATIO: float = 0.005    # 0.5% / 日
 # 命中率統計「可信樣本」下限：低於此值報表附「樣本少，僅供參考」旗標（防過早下結論）。
 LEDGER_MIN_MEANINGFUL_SAMPLE: int = 30
 

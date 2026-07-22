@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 from config import (
@@ -22,7 +22,7 @@ from config import (
     REGIME_LABEL_NEUTRAL,
 )
 
-from .reconcile import STATUS_SCORED, PriceBar, _entry_index, reconcile
+from .reconcile import STATUS_SCORED, PriceBar, _entry_index, horizon_band, reconcile
 from .store import Judgment
 
 _BUCKETS = (REGIME_LABEL_BULL, REGIME_LABEL_NEUTRAL, REGIME_LABEL_BEAR)
@@ -47,7 +47,8 @@ class LedgerReport:
     buckets: dict                       # label -> BucketStat
     by_regime: dict                     # regime -> (n, hits, hit_rate)（僅方向判讀）
     horizon_n: int
-    band: float
+    band: float                         # 視窗**有效**容差（日容差 × √horizon）
+    base_rates: dict = field(default_factory=dict)  # label -> 基準命中率（always-該桶；漂移 base rate）
 
 
 def dedup_judgments(judgments: list[Judgment]) -> list[Judgment]:
@@ -70,12 +71,16 @@ def build_report(
     band: float | None = None,
 ) -> LedgerReport:
     horizon_n = LEDGER_HORIZON_TRADING_DAYS if horizon_n is None else horizon_n
-    band = LEDGER_HIT_BAND_RATIO if band is None else band
+    # band bug 修正：config 值為「每日 no-move 容差」→ 對帳時 ×√horizon 放大到視窗尺度
+    # （否則日容差硬套月報酬 → 中性桶結構性 0% 命中）。呼叫端顯式傳 band 則視為「已是
+    # 視窗有效容差」原樣用（測試/特殊視窗，不重複放大）。
+    band = horizon_band(LEDGER_HIT_BAND_RATIO, horizon_n) if band is None else band
 
     deduped = dedup_judgments(judgments)
     n = {b: 0 for b in _BUCKETS}
     hits = {b: 0 for b in _BUCKETS}
     rets: dict[str, list[float]] = {b: [] for b in _BUCKETS}
+    base_cnt = {b: 0 for b in _BUCKETS}   # 市場實際走勢分布（always-該桶 基準；漂移 base rate）
     n_scored = n_pending = 0
     reg_n: dict[str, int] = {}      # 分 regime：僅方向判讀（偏多/偏空）
     reg_hits: dict[str, int] = {}
@@ -93,6 +98,15 @@ def build_report(
         if out.hit:
             hits[j.label] += 1
         rets[j.label].append(out.forward_return)
+        # 基準：這些對帳日市場**實際**走勢分布（漲>容差 / 幾乎沒動 / 跌>容差），
+        # 與判讀 label 無關 → 「無腦永遠喊某桶」的命中率（漂移 base rate）。
+        r = out.forward_return
+        if r > band:
+            base_cnt[REGIME_LABEL_BULL] += 1
+        elif r < -band:
+            base_cnt[REGIME_LABEL_BEAR] += 1
+        else:
+            base_cnt[REGIME_LABEL_NEUTRAL] += 1
         if j.label in (REGIME_LABEL_BULL, REGIME_LABEL_BEAR):
             reg_n[j.regime] = reg_n.get(j.regime, 0) + 1
             if out.hit:
@@ -109,16 +123,20 @@ def build_report(
         r: (reg_n[r], reg_hits.get(r, 0), reg_hits.get(r, 0) / reg_n[r])
         for r in reg_n
     }
+    base_rates = {
+        b: (base_cnt[b] / n_scored if n_scored else None) for b in _BUCKETS
+    }
     return LedgerReport(
         n_total=len(deduped), n_scored=n_scored, n_pending=n_pending,
         directional_hit_rate=(dh / dn if dn else None), directional_n=dn,
         buckets=buckets, by_regime=by_regime, horizon_n=horizon_n, band=band,
+        base_rates=base_rates,
     )
 
 
 def format_report(rep: LedgerReport) -> str:
     """對帳報表 → 純文字（console / LINE 共用）。"""
-    lines = [f"📒 判讀對帳（forward-test T+{rep.horizon_n} 交易日）"]
+    lines = [f"📒 判讀對帳（forward-test T+{rep.horizon_n} 交易日，容差 ±{rep.band:.1%}）"]
     lines.append(f"樣本 {rep.n_total} 筆：已對帳 {rep.n_scored} / 未到期 {rep.n_pending}")
 
     if rep.directional_hit_rate is None:
@@ -135,7 +153,12 @@ def format_report(rep: LedgerReport) -> str:
             continue
         hr = f"{st.hit_rate:.0%}" if st.hit_rate is not None else "—"
         avg = f"{st.avg_forward_return:+.1%}" if st.avg_forward_return is not None else "—"
-        lines.append(f"　{b} {st.n} 筆　命中 {st.hits}（{hr}）　平均前瞻 {avg}")
+        # 對照「無腦永遠喊該桶」的漂移基準 → 超額才是真 edge（漂移 ≠ 本事）。
+        base = rep.base_rates.get(b)
+        edge_txt = ""
+        if base is not None and st.hit_rate is not None:
+            edge_txt = f"　基準 {base:.0%} → 超額 {st.hit_rate - base:+.0%}"
+        lines.append(f"　{b} {st.n} 筆　命中 {st.hits}（{hr}）{edge_txt}　平均前瞻 {avg}")
     if rep.by_regime:
         lines.append("— 分 regime（方向命中率）—")
         for r, (rn, rh, rr) in rep.by_regime.items():
