@@ -30,8 +30,8 @@ def test_bullish_scenario_strong_buy_and_buys(data_agent):
         as_of_date=AS_OF, auto_trade=True,
     )
     res = orch.run_once(req)
-    # 加厚技術後（便宜/均值回歸 + 趨勢/動能/籌碼多因子），純超賣不再輕易 STRONG_BUY——
-    # demo 2330 為超賣但空頭排列（close<MA20<MA60）+ 法人大買 → 偏多但不極端 → 至少 ADD、下 BUY 單。
+    # D3 技術融合（順勢定方向 + 回檔進場交互項）：demo 2330 為多頭排列（close>MA20>MA60）
+    # 的「回檔 + 法人買超」→ trend×timing 交互項高分 → 偏多、下 BUY 單。
     # STRONG_BUY（需全面對齊）的路徑改由 test_strategy_agent 以合成高分覆蓋。
     assert res.decision.action.is_bullish and not res.decision.abstained
     assert res.decision.final_score >= 0.60          # ADD 下界（偏多）

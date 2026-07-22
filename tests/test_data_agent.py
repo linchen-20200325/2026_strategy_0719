@@ -17,7 +17,7 @@ def test_fetch_latest_technical(data_agent):
     assert packet.has_technical
     # 應取最新一期 (2026-07-18)
     assert packet.technical.as_of == "2026-07-18"
-    assert packet.technical.rsi == pytest.approx(28.0)
+    assert packet.technical.rsi == pytest.approx(44.0)   # 2330 D3 demo：順勢回檔 RSI
     assert packet.us_link is not None
     assert packet.us_link.us_stock_id == "NVDA"
 
@@ -85,9 +85,9 @@ def test_technical_reads_chip_kd_ma_columns(data_agent):
     """新版 stock.db 富欄 → 均線/KD/籌碼(張,賣超保留負號)讀進 snapshot。"""
     snap = data_agent.aggregate("2454", "AMD", ["半導體"], as_of_date=AS_OF).technical
     assert snap is not None
-    assert snap.ma20 == pytest.approx(1298.0)      # 元
-    assert snap.ma60 == pytest.approx(1251.0)
-    assert snap.kd_k == pytest.approx(85.0) and snap.kd_d == pytest.approx(79.0)  # 0~100
+    assert snap.ma20 == pytest.approx(1340.0)      # 元（2454 D3 demo：空頭排列 MA20<MA60）
+    assert snap.ma60 == pytest.approx(1370.0)
+    assert snap.kd_k == pytest.approx(82.0) and snap.kd_d == pytest.approx(85.0)  # 0~100（死叉）
     assert snap.foreign_net_lots == pytest.approx(-8120.0)   # 張,賣超負號
     assert snap.total_net_lots == pytest.approx(-9450.0)     # 三大法人
 

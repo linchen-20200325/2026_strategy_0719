@@ -102,13 +102,23 @@ REVENUE_YOY_HIGH_PCT: float = 30.0      # 月營收年增 30% → 1 分
 # 技術面得分：多因子（便宜/均值回歸 + 趨勢/動能/籌碼）綜合，各子分量 [0,1]，越高越偏多。
 # 全部子分量都用 my-stock 已 export 的原始欄位（close/RSI/布林/MA20/MA60/KD/三大法人籌碼）——
 # 判斷在 2026 做，來源只出資料。缺欄（舊 stock.db / ETF）→ 該子分量不計、重新歸一化。
-# 向後相容鐵則：percent_b 與 rsi 同權重 → 只有這兩者時歸一化後 = 原本 0.5/0.5，行為不變。
+# TECH_SUBWEIGHTS 現作為 D3「組內」相對權重（timing 群 {percent_b,rsi}、momentum 群
+# {kd,chip} 各自加權平均）；ma_align 為 trend 群單一訊號。組間融合走 TECH_D3_GROUP_WEIGHTS。
 TECH_SUBWEIGHTS: dict[str, float] = {
-    "percent_b": 0.20,   # 布林 %B 位階（便宜度）
-    "rsi": 0.20,         # RSI 動能（便宜度）
-    "ma_align": 0.25,    # 均線排列（close vs MA20 vs MA60；趨勢）
-    "kd": 0.15,          # KD（黃金交叉 + 低檔空間；動能）
-    "chip": 0.20,        # 三大法人買賣超（資金流向）
+    "percent_b": 0.20,   # 布林 %B 位階（便宜度；timing 群）
+    "rsi": 0.20,         # RSI 動能（便宜度；timing 群）
+    "ma_align": 0.25,    # 均線排列（close vs MA20 vs MA60；trend 群）
+    "kd": 0.15,          # KD（黃金交叉 + 低檔空間；momentum 群）
+    "chip": 0.20,        # 三大法人買賣超（資金流向；momentum 群）
+}
+
+# D3「順勢 + 回檔進場」組間權重（SSOT，§3.3）。化解「買便宜(均值回歸)」vs「買強勢(順勢)」
+# 互斥：trend 定方向、timing 以 **trend × timing 交互項**進入（回檔只在上升趨勢中加分，
+# 不接下跌趨勢的刀）、momentum 確認。上升+回檔→最高；上升+過熱→中等；下跌+超賣→低。
+TECH_D3_GROUP_WEIGHTS: dict[str, float] = {
+    "trend": 0.45,       # ma_align 趨勢強度（主方向 gate）
+    "entry": 0.35,       # trend × timing（上升趨勢中的回檔/超賣 = 好進場）
+    "momentum": 0.20,    # KD + 三大法人籌碼（確認 / 動能）
 }
 
 RSI_MIN: float = 0.0
@@ -243,6 +253,7 @@ def _validate_config() -> None:
         ("MACRO_SUBWEIGHTS", MACRO_SUBWEIGHTS),
         ("FUNDAMENTAL_SUBWEIGHTS", FUNDAMENTAL_SUBWEIGHTS),
         ("TECH_SUBWEIGHTS", TECH_SUBWEIGHTS),
+        ("TECH_D3_GROUP_WEIGHTS", TECH_D3_GROUP_WEIGHTS),
     ):
         total = math.fsum(weights.values())
         if not math.isclose(total, 1.0, abs_tol=FLOAT_ABS_TOL):
