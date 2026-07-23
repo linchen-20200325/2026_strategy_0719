@@ -14,7 +14,7 @@ from multi_agent_system.contracts import (
     TechnicalSnapshot,
 )
 from multi_agent_system.integration_agent import CycleResult
-from multi_agent_system.pipeline import format_stock_card, format_watch_digest
+from multi_agent_system.render_text import format_stock_card, format_watch_digest
 
 
 def _snap(**kw) -> TechnicalSnapshot:

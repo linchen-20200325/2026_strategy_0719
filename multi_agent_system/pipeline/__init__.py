@@ -20,16 +20,12 @@ __all__ = [
     "DbFreshness",
     "PipelineRunner",
     "RunReport",
-    "summarize",
-    "format_run_digest",
     "bullish_ranked",
-    "format_bullish_digest",
-    "format_stock_card",
-    "format_watch_digest",
     "build_request",
 ]
 
 # 公開名 → 所在子模組（相對）。存取到才 import（見 __getattr__）。
+# 文字渲染（format_*/summarize）住 render_text，不由 pipeline re-export（V2/V3/V4 收尾）。
 _LAZY = {
     "WatchItem": "watchlist",
     "DEMO_WATCHLIST": "watchlist",
@@ -41,12 +37,7 @@ _LAZY = {
     "DbFreshness": "freshness",
     "PipelineRunner": "runner",
     "RunReport": "runner",
-    "summarize": "runner",
-    "format_run_digest": "runner",
     "bullish_ranked": "runner",
-    "format_bullish_digest": "runner",
-    "format_stock_card": "runner",
-    "format_watch_digest": "runner",
     "build_request": "runner",
 }
 

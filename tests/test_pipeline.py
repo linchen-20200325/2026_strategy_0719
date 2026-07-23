@@ -18,8 +18,8 @@ from multi_agent_system.pipeline import (
     WatchItem,
     check_freshness,
     load_db_paths,
-    summarize,
 )
+from multi_agent_system.render_text import summarize
 
 AS_OF = date(2026, 7, 19)   # demo 最新資料為 2026-07-18
 
@@ -128,7 +128,7 @@ def test_runner_invalid_session_raises(demo_paths):
 
 # ------------------------------------------------------------------ digest
 def test_format_run_digest(demo_paths):
-    from multi_agent_system.pipeline import format_run_digest
+    from multi_agent_system.render_text import format_run_digest
 
     report = _runner(demo_paths).run("afternoon", as_of=AS_OF)
     digest = format_run_digest(report)

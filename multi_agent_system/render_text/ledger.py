@@ -58,10 +58,12 @@ def format_report(rep: LedgerReport) -> str:
 
 def format_equity(eq: EquityReport) -> str:
     """機械式跟單淨值 → 純文字。"""
+    # 模擬總經判讀已於 build_equity 排除不計淨值（§1）→ 有排除才揭露，維持既有輸出 byte-identical。
+    sim = f"　模擬排除 {eq.n_simulated}" if getattr(eq, "n_simulated", 0) else ""
     if eq.n_segments == 0:
-        return "📈 機械式跟單：尚無足夠判讀連段（等下一筆判讀）"
+        return f"📈 機械式跟單：尚無足夠判讀連段（等下一筆判讀）{sim}"
     return (
-        f"📈 機械式跟單 vs 大盤（{eq.n_segments} 段 · 換手 {eq.n_switches} 次 · 已扣成本）\n"
+        f"📈 機械式跟單 vs 大盤（{eq.n_segments} 段 · 換手 {eq.n_switches} 次 · 已扣成本）{sim}\n"
         f"　跟單 {eq.strategy_return:+.1%}　vs　大盤 {eq.market_return:+.1%}"
         f"　→ 超額 {eq.excess:+.1%}"
     )

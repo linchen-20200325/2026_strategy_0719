@@ -31,7 +31,7 @@ logger = logging.getLogger("multi_agent_system.line")
 LINE_PUSH_ENDPOINT = "https://api.line.me/v2/bot/message/push"
 LINE_MULTICAST_ENDPOINT = "https://api.line.me/v2/bot/message/multicast"
 LINE_BROADCAST_ENDPOINT = "https://api.line.me/v2/bot/message/broadcast"
-_MAX_TEXT_LEN = 4900   # LINE 單則 text 上限 5000,留餘裕
+MAX_LINE_TEXT_LEN = 4900   # LINE 單則 text 上限 5000,留餘裕（SSOT，nas_line_bot 共用）
 
 
 class LinePushError(RuntimeError):
@@ -86,7 +86,7 @@ class LinePusher:
         self._require_config()
         if not text.strip():
             raise LinePushError("推播內容為空")
-        messages = [{"type": "text", "text": text[:_MAX_TEXT_LEN]}]
+        messages = [{"type": "text", "text": text[:MAX_LINE_TEXT_LEN]}]
         endpoint, body, mode = self._resolve_target(messages)
         logger.info("LINE 推播模式：%s", mode)  # 只印模式,不印任何 ID（避免外洩）
         try:

@@ -14,20 +14,12 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date
 
-from ..contracts import CycleResult, WatchItem
+from ..contracts import CycleResult, WatchItem, utc_now
 from ..integration_agent import ResearchRequest, WorkflowOrchestrator
 from ..macro_providers import MacroDataProvider
 from ..notifications import Notifier, should_notify
-from ..render_text.run_digest import (  # noqa: F401  (向後相容 re-export)
-    _fin_line,
-    format_bullish_digest,
-    format_run_digest,
-    format_stock_card,
-    format_watch_digest,
-    summarize,
-)
 from .freshness import FreshnessReport, check_freshness
 
 logger = logging.getLogger("multi_agent_system.pipeline")
@@ -136,7 +128,7 @@ class PipelineRunner:
                 if should_notify(r.decision):
                     self.notifier.notify(r.decision)
 
-        ran_at = datetime.now(timezone.utc).isoformat()
+        ran_at = utc_now().isoformat()   # UTC 時間戳走 contracts SSOT（與 DTO fetched_at 同源）
         report = RunReport(session=session, ran_at=ran_at, freshness=fresh, results=results)
         n_act = len(report.actionable())
         logger.info(

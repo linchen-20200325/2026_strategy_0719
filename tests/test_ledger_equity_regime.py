@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
+import pytest
+
 from config import (
     REGIME_LABEL_BEAR,
     REGIME_LABEL_BULL,
@@ -18,8 +20,9 @@ from config import (
 )
 from multi_agent_system.ledger.reconcile import PriceBar
 from multi_agent_system.ledger.recorder import record_market_regime, regime_of
-from multi_agent_system.ledger.report import build_equity, build_report, format_equity
+from multi_agent_system.ledger.report import build_equity, build_report
 from multi_agent_system.ledger.store import Judgment, read_judgments
+from multi_agent_system.render_text import format_equity
 
 TW = timezone(timedelta(hours=8))
 
@@ -31,6 +34,11 @@ def _seq(start: str, n: int, fn) -> list[PriceBar]:
 
 def _J(dstr, session, label, regime=REGIME_UNTAGGED):
     return Judgment(f"{dstr}T07:30:00+08:00", dstr, session, label, 0.5, regime)
+
+
+def _Jsim(dstr, session, label, regime=REGIME_UNTAGGED):
+    """模擬/注入總經判讀（is_simulated=True）→ build_equity/build_report 應排除不計。"""
+    return Judgment(f"{dstr}T07:30:00+08:00", dstr, session, label, 0.5, regime, True)
 
 
 # ------------------------------------------------------------------ regime 導出 / 持久化
@@ -117,3 +125,43 @@ def test_format_equity_shows_excess():
           _J("2026-01-02", "morning", REGIME_LABEL_BULL)]
     txt = format_equity(build_equity(js, bars))
     assert "機械式跟單" in txt and "超額" in txt and "大盤" in txt
+
+
+# ------------------------------------------------------------------ §1：模擬總經排除不計淨值
+def test_equity_excludes_simulated_judgments():
+    # 三筆判讀，中間一筆為模擬 → 排除後只剩 2 筆真實 → 只成 1 段（原本 3 筆會成 2 段）。
+    bars = _seq("2026-01-01", 10, lambda i: 100 * (1.01 ** i))
+    js = [_J("2026-01-01", "morning", REGIME_LABEL_BULL),
+          _Jsim("2026-01-02", "morning", REGIME_LABEL_BULL),   # 模擬 → 排除
+          _J("2026-01-03", "morning", REGIME_LABEL_BULL)]
+    eq = build_equity(js, bars)
+    assert eq.n_simulated == 1
+    assert eq.n_segments == 1                       # 只有 01-01 → 01-03 一段（模擬那筆不成節點）
+
+
+def test_equity_all_simulated_yields_no_segments():
+    # 全模擬 → 真實判讀 0 筆 → 無段、n_simulated 如實揭露（§1，不讓假總經造假淨值）。
+    bars = _seq("2026-01-01", 10, lambda i: 100 * (1.01 ** i))
+    js = [_Jsim("2026-01-01", "morning", REGIME_LABEL_BULL),
+          _Jsim("2026-01-02", "morning", REGIME_LABEL_BULL)]
+    eq = build_equity(js, bars)
+    assert eq.n_segments == 0 and eq.n_simulated == 2
+
+
+def test_format_equity_discloses_simulated_exclusion():
+    bars = _seq("2026-01-01", 10, lambda i: 100 * (1.01 ** i))
+    js = [_J("2026-01-01", "morning", REGIME_LABEL_BULL),
+          _Jsim("2026-01-02", "morning", REGIME_LABEL_BULL),
+          _J("2026-01-03", "morning", REGIME_LABEL_BULL)]
+    txt = format_equity(build_equity(js, bars))
+    assert "模擬排除 1" in txt
+
+
+def test_equity_raises_on_nonpositive_open():
+    # §1：進場 open 非正 = market_index 資料異常 → Fail-Loud，不算假報酬。
+    bars = [PriceBar(date(2026, 1, 1), 0.0), PriceBar(date(2026, 1, 2), 100.0),
+            PriceBar(date(2026, 1, 3), 101.0)]
+    js = [_J("2026-01-01", "morning", REGIME_LABEL_BULL),
+          _J("2026-01-02", "morning", REGIME_LABEL_BULL)]
+    with pytest.raises(ValueError, match="open 非正"):
+        build_equity(js, bars)

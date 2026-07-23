@@ -17,10 +17,11 @@ from config import (
 from multi_agent_system.contracts import Action
 from multi_agent_system.ledger.reconcile import PriceBar
 from multi_agent_system.ledger.recorder import record_market_regime
-from multi_agent_system.ledger.report import build_report, format_report
+from multi_agent_system.ledger.report import build_report
 from multi_agent_system.ledger.stock_recorder import record_stock_judgments
 from multi_agent_system.ledger.stock_store import read_stock_judgments
 from multi_agent_system.ledger.store import Judgment, read_judgments
+from multi_agent_system.render_text import format_report
 
 TW = timezone(timedelta(hours=8))
 

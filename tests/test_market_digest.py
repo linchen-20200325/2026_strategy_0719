@@ -13,13 +13,13 @@ from multi_agent_system.contracts import (
 )
 from multi_agent_system.market_digest import (
     NewsStat,
-    build_market_digest,
     market_regime,
     night_regime,
     sentiment_label,
     summarize_news,
     tally_watchlist,
 )
+from multi_agent_system.render_text import build_market_digest
 
 
 def _night(oi=12480.0, close=22150.0, pts=85.0, pct=0.385, *, simulated=False):

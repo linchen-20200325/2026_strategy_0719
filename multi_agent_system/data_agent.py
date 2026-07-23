@@ -43,7 +43,7 @@ from .contracts import (
     UsLinkSnapshot,
 )
 from .infra.db import DataSourceError, connect_readonly, safe_identifier
-from .numerics import clamp
+from .numerics import clamp, isclose
 
 
 def _read_sql(conn: sqlite3.Connection, sql: str, params: Sequence) -> pd.DataFrame:
@@ -353,7 +353,7 @@ class DataAggregationAgent:
                 continue
             val = float(raw)
             capped = clamp(val, SENTIMENT_RAW_MIN, SENTIMENT_RAW_MAX)
-            if not _almost_equal(capped, val):
+            if not isclose(capped, val):   # 浮點比較走 numerics SSOT（§4.3 禁止 ==）
                 clamped += 1
             items.append(
                 NewsItem(as_of=str(r["date"]), title=str(r["title"]), sentiment_score=capped)
@@ -363,7 +363,3 @@ class DataAggregationAgent:
         if skipped_nan:
             warnings.append(f"news.db 有 {skipped_nan} 筆 sentiment_score 為 NaN 已跳過")
         return items
-
-
-def _almost_equal(a: float, b: float) -> bool:
-    return abs(a - b) <= 1e-12

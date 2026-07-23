@@ -13,13 +13,13 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import sqlite3
 import sys
 from datetime import date
 
 # scripts/ 執行時把 repo root 掛上 path（對照 subscribers_cli 需 PYTHONPATH 的教訓，這裡自帶）。
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from multi_agent_system.infra.db import connect_readonly  # noqa: E402
 from multi_agent_system.ledger import (  # noqa: E402
     PriceBar,
     build_equity,
@@ -33,9 +33,7 @@ logger = logging.getLogger("ledger_report")
 
 def _read_market_index_bars(stock_db: str) -> list[PriceBar]:
     """讀 stock.db market_index → 升冪 (date, open) 交易日序列。缺檔/空表 → raise（Fail-Loud）。"""
-    if not os.path.exists(stock_db):
-        raise FileNotFoundError(f"stock.db 不存在：{stock_db}")
-    con = sqlite3.connect(stock_db)
+    con = connect_readonly(stock_db)   # 缺檔 → DataSourceError；唯讀模式不寫來源庫
     try:
         rows = con.execute(
             "SELECT date, open FROM market_index WHERE open IS NOT NULL ORDER BY date"
