@@ -1,9 +1,11 @@
-"""report.py — ledger 對帳聚合（stateless）。L2 聚合純函式 + 文字格式化（format_report/format_equity，待 V3 抽文字渲染層）。
+"""report.py — ledger 對帳聚合（stateless、純 L2）。
 
 讀入判讀清單 + 當前 market_index 交易日 open 序列 → 逐筆 reconcile → 聚合命中率。
-**每次重算**（不依賴任何落地的評分狀態）→ 冪等、無漂移。純函式、無 I/O。
+**每次重算**（不依賴任何落地的評分狀態）→ 冪等、無漂移。純函式、無 I/O、無文字渲染。
 
-命中率一律顯示樣本數 n;n < LEDGER_MIN_MEANINGFUL_SAMPLE → 附「樣本少」旗標，防過早下結論。
+命中率一律顯示樣本數 n;n < LEDGER_MIN_MEANINGFUL_SAMPLE → 由 render_text.ledger 附「樣本少」
+旗標，防過早下結論。文字渲染（format_report / format_equity）已於 Phase 3 V2 遷至
+`multi_agent_system.render_text.ledger`;本檔下方保留向後相容 re-export。
 """
 
 from __future__ import annotations
@@ -15,13 +17,13 @@ from config import (
     LEDGER_EXPOSURE,
     LEDGER_HIT_BAND_RATIO,
     LEDGER_HORIZON_TRADING_DAYS,
-    LEDGER_MIN_MEANINGFUL_SAMPLE,
     LEDGER_SWITCH_COST_RATIO,
     REGIME_LABEL_BEAR,
     REGIME_LABEL_BULL,
     REGIME_LABEL_NEUTRAL,
 )
 
+from ..render_text.ledger import format_equity, format_report  # noqa: F401  (向後相容 re-export)
 from .reconcile import STATUS_SCORED, PriceBar, _entry_index, horizon_band, reconcile
 from .store import Judgment
 
@@ -139,39 +141,6 @@ def build_report(
     )
 
 
-def format_report(rep: LedgerReport) -> str:
-    """對帳報表 → 純文字（console / LINE 共用）。"""
-    lines = [f"📒 判讀對帳（forward-test T+{rep.horizon_n} 交易日，容差 ±{rep.band:.1%}）"]
-    sim = f" / 模擬排除 {rep.n_simulated}" if rep.n_simulated else ""
-    lines.append(f"樣本 {rep.n_total} 筆：已對帳 {rep.n_scored} / 未到期 {rep.n_pending}{sim}")
-
-    if rep.directional_hit_rate is None:
-        lines.append("方向命中率：尚無已對帳樣本（等 T+N 到期）")
-    else:
-        warn = "　⚠️ 樣本少，僅供參考" if rep.directional_n < LEDGER_MIN_MEANINGFUL_SAMPLE else ""
-        lines.append(
-            f"方向命中率 {rep.directional_hit_rate:.0%}"
-            f"（{rep.directional_n} 筆偏多+偏空）{warn}"
-        )
-    for b in _BUCKETS:
-        st = rep.buckets[b]
-        if st.n == 0:
-            continue
-        hr = f"{st.hit_rate:.0%}" if st.hit_rate is not None else "—"
-        avg = f"{st.avg_forward_return:+.1%}" if st.avg_forward_return is not None else "—"
-        # 對照「無腦永遠喊該桶」的漂移基準 → 超額才是真 edge（漂移 ≠ 本事）。
-        base = rep.base_rates.get(b)
-        edge_txt = ""
-        if base is not None and st.hit_rate is not None:
-            edge_txt = f"　基準 {base:.0%} → 超額 {st.hit_rate - base:+.0%}"
-        lines.append(f"　{b} {st.n} 筆　命中 {st.hits}（{hr}）{edge_txt}　平均前瞻 {avg}")
-    if rep.by_regime:
-        lines.append("— 分 regime（方向命中率）—")
-        for r, (rn, rh, rr) in rep.by_regime.items():
-            lines.append(f"　{r}：{rr:.0%}（{rh}/{rn}）")
-    return "\n".join(lines)
-
-
 # ------------------------------------------------------------------ 機械式跟單淨值
 @dataclass(frozen=True)
 class EquityReport:
@@ -233,14 +202,3 @@ def build_equity(
         return EquityReport(0, None, None, None, 0, switch_cost)
     sr, mr = strat - 1.0, mkt - 1.0
     return EquityReport(nseg, sr, mr, sr - mr, nsw, switch_cost)
-
-
-def format_equity(eq: EquityReport) -> str:
-    """機械式跟單淨值 → 純文字。"""
-    if eq.n_segments == 0:
-        return "📈 機械式跟單：尚無足夠判讀連段（等下一筆判讀）"
-    return (
-        f"📈 機械式跟單 vs 大盤（{eq.n_segments} 段 · 換手 {eq.n_switches} 次 · 已扣成本）\n"
-        f"　跟單 {eq.strategy_return:+.1%}　vs　大盤 {eq.market_return:+.1%}"
-        f"　→ 超額 {eq.excess:+.1%}"
-    )

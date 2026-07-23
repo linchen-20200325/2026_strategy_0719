@@ -24,10 +24,9 @@ from multi_agent_system.ledger import (  # noqa: E402
     PriceBar,
     build_equity,
     build_report,
-    format_equity,
-    format_report,
     read_judgments,
 )
+from multi_agent_system.render_text import format_equity, format_report  # noqa: E402
 
 logger = logging.getLogger("ledger_report")
 
