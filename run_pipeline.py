@@ -40,10 +40,9 @@ from multi_agent_system.macro_providers import MacroDataProvider
 from multi_agent_system.pipeline import (
     DEMO_WATCHLIST,
     PipelineRunner,
-    format_run_digest,
     load_db_paths,
-    summarize,
 )
+from multi_agent_system.render_text import format_run_digest, summarize
 
 logger = logging.getLogger("multi_agent_system.pipeline")
 

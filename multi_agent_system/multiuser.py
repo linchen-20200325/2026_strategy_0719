@@ -20,12 +20,8 @@ from .contracts import WatchItem
 from .integration_agent import WorkflowOrchestrator
 from .line_push import LinePusher, LinePushError
 from .macro_providers import MacroDataProvider
-from .pipeline import (
-    build_request,
-    bullish_ranked,
-    format_bullish_digest,
-    format_watch_digest,
-)
+from .pipeline import build_request, bullish_ranked
+from .render_text import format_bullish_digest, format_watch_digest
 
 logger = logging.getLogger("multi_agent_system.multiuser")
 
