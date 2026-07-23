@@ -1,6 +1,6 @@
 # 多智能體虛擬投研與自動交易系統 (Multi-Agent Trading System)
 
-以 **1 個資料代理人 + 5 個虛擬專家智能體**，跨接三個在地化 SQLite 資料庫
+以 **1 個資料代理人 + 6 個虛擬專家智能體**，跨接三個在地化 SQLite 資料庫
 （`stock.db` / `fund.db` / `news.db`），完成「跨庫取數 → 多專家評分 → 決策融合 →
 五大交易行動 → Mock 下單」的完整投研工作流。
 
@@ -17,25 +17,26 @@
    fund.db   ───────► │     跨三庫查詢 → 標準 DataPacket (JSON)       │
    news.db   ───────► └──────────────────────────────────────────────┘
                                         │  DataPacket
-                 ┌──────────────────────┼───────────────────────┐
-                 ▼                      ▼                        ▼
-   ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐
-   │ ② 總經專家 Macro    │  │ ③ 技術專家 Technical│  │ ④ 配置專家 Allocation│
-   │  10Y-2Y / CPI / 情緒│  │  布林 %B + RSI      │  │  MPT / Sharpe / 風控 │
-   └─────────┬──────────┘  └─────────┬──────────┘  └─────────┬──────────┘
-             │ 0.30                   │ 0.50                   │ 0.20
-             └────────────────────────┼────────────────────────┘
-                                       ▼
-                         ┌────────────────────────────┐
-                         │ ⑤ 策略專家 Strategy (大腦)   │
-                         │  決策融合 → Final Score → 五大│
-                         │  行動 + 風控硬約束           │
-                         └──────────────┬─────────────┘
-                                        ▼
-                         ┌────────────────────────────┐
-                         │ ⑥ 系統整合 Orchestrator      │
-                         │  定時/定點觸發 + Mock 下單    │
-                         └────────────────────────────┘
+          ┌──────────────┬──────────────┼──────────────┬──────────────┐
+          ▼              ▼              ▼              ▼
+   ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐
+   │② 總經 Macro│ │③ 技術 Tech │ │④ 基本面Fund│ │⑤ 配置Alloc │
+   │ 10Y2Y/CPI/ │ │ 布林%B/RSI/│ │ 毛利/淨利/ │ │ MPT/Sharpe/│
+   │ 情緒       │ │ 均線/籌碼  │ │ 營收YoY    │ │ 集中度風控 │
+   └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └─────┬──────┘
+      0.24            0.40           0.20           0.16
+         └──────────────┴──────┬───────┴──────────────┘
+                               ▼
+                  ┌────────────────────────────┐
+                  │ ⑥ 策略專家 Strategy (大腦)   │
+                  │  決策融合 → Final Score → 五大│
+                  │  行動 + 風控硬約束           │
+                  └──────────────┬─────────────┘
+                                 ▼
+                  ┌────────────────────────────┐
+                  │ ⑦ 系統整合 Orchestrator      │
+                  │  定時/定點觸發 + Mock 下單    │
+                  └────────────────────────────┘
 ```
 
 | # | 智能體 | 職責 | 對應檔案 |
@@ -43,9 +44,10 @@
 | ① | 資料代理人 | 跨三庫查最新技術面/美股連動/近 7 天新聞，打包 JSON | `multi_agent_system/data_agent.py` |
 | ② | 總經專家 | 評估系統性風險（殖利率倒掛 + CPI + 新聞情緒）→ 健康度 [0,1] | `multi_agent_system/macro_agent.py` |
 | ③ | 技術線型專家 | 布林 %B + RSI 判斷超買/超賣 → 技術面得分 [0,1] | `multi_agent_system/technical_agent.py` |
-| ④ | 資產配置專家 | MPT / Sharpe，並對集中度超限強制發出風控減碼信號 | `multi_agent_system/allocation_agent.py` |
-| ⑤ | 策略專家 | 30/50/20 加權融合 → 五大行動 + 風控硬約束 | `multi_agent_system/strategy_agent.py` |
-| ⑥ | 系統整合專家 | 主工作流編排 + 定時觸發 + Mock 券商下單介面 | `multi_agent_system/integration_agent.py` |
+| ④ | 基本面專家 | 財報品質（毛利率/淨利率）+ 月營收 YoY → 基本面得分 [0,1]；查無財報者不計入（重新歸一化，不 abstain） | `multi_agent_system/fundamental_agent.py` |
+| ⑤ | 資產配置專家 | MPT / Sharpe，並對集中度超限強制發出風控減碼信號 | `multi_agent_system/allocation_agent.py` |
+| ⑥ | 策略專家 | 0.24/0.40/0.20/0.16 加權融合（缺基本面→歸一化還原 3:5:2）→ 五大行動 + 風控硬約束 | `multi_agent_system/strategy_agent.py` |
+| ⑦ | 系統整合專家 | 主工作流編排 + 定時觸發 + Mock 券商下單介面 | `multi_agent_system/integration_agent.py` |
 
 ---
 
@@ -78,9 +80,17 @@ sharpe_score  = clamp( Sharpe / 2.0, 0, 1 )
 集中度風控：`current_weight > max_weight` → `alloc_score = 0.25·(1 - clamp(overshoot,0,1))`，
 並回傳 `risk_control_triggered=True`。
 
+**基本面品質（基本面）**
+```
+S_fund = Σ w_k·f_k(x_k) / Σ w_k          # k ∈ 有資料分量,缺者不計 → 重新歸一化
+f(x)   = linear_map(x, LOW, HIGH, 0, 1)   # 毛利率 / 淨利率 / 月營收 YoY 各自區間(SSOT: config)
+```
+查無財報（ETF / 新股）→ `available=False`，策略層改由其餘專家歸一化,**不 abstain**。
+
 **決策融合（策略）**
 ```
-Final = 0.30·S_macro + 0.50·S_tech + 0.20·S_alloc
+Final = 0.24·S_macro + 0.40·S_tech + 0.20·S_fund + 0.16·S_alloc   # 權重 SSOT: config.FUSION_WEIGHTS
+        缺基本面資料時 → 以現有專家重新歸一化,精確還原 0.30·S_macro + 0.50·S_tech + 0.20·S_alloc
 Final >= 0.80 強烈買進 | >=0.60 加碼 | >=0.40 觀望 | >=0.20 減碼 | <0.20 強烈賣出
 風控觸發時，行動不得比「適度減碼」更偏多（hard override）。
 ```
@@ -242,9 +252,10 @@ ruff check .    # lint
 │   ├── macro_agent.py            # ② 總經專家
 │   ├── macro_providers.py        #    總經來源介面 + 模擬/注入
 │   ├── technical_agent.py        # ③ 技術專家
-│   ├── allocation_agent.py       # ④ 配置專家
-│   ├── strategy_agent.py         # ⑤ 策略融合
-│   ├── integration_agent.py      # ⑥ 編排 + Mock 券商
+│   ├── fundamental_agent.py      # ④ 基本面專家（毛利/淨利 + 月營收 YoY）
+│   ├── allocation_agent.py       # ⑤ 配置專家
+│   ├── strategy_agent.py         # ⑥ 策略融合
+│   ├── integration_agent.py      # ⑦ 編排 + Mock 券商
 │   ├── ledger/                   # forward-test 判讀對帳（append-only JSONL）
 │   │   ├── store.py              #    大盤判讀持久化（落地走 paths SSOT）
 │   │   ├── stock_store.py        #    個股判讀持久化（落地走 paths SSOT）

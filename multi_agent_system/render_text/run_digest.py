@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING
 
 from config import SESSION_LABELS
 
-from ..contracts import Action
 from ..notifications import ACTION_EMOJI, format_notification
 from ._common import _fmt_price
 
@@ -26,13 +25,12 @@ if TYPE_CHECKING:
 
 
 # ── 個股盯盤卡（對齊使用者現有 LINE 盯盤 bot：技術＋籌碼一張卡）─────────────────
-# 五大行動 → 三態白話標籤（利多/中性/利空）;emoji + 中文並用（不靠顏色單獨表意）。
-_VERDICT_LABEL: dict[Action, str] = {
-    Action.STRONG_BUY: "🟢 利多",
-    Action.ADD: "🟢 利多",
-    Action.HOLD: "🟡 中性",
-    Action.REDUCE: "🔴 利空",
-    Action.STRONG_SELL: "🔴 利空",
+# 三態情緒 → 白話標籤（利多/中性/利空）;emoji + 中文並用（不靠顏色單獨表意）。
+# 5→3 分類走 Action.tone SSOT（見 contracts），此處不重刻五大行動歸類，避免漂移。
+_TONE_LABEL: dict[str, str] = {
+    "bullish": "🟢 利多",
+    "neutral": "🟡 中性",
+    "bearish": "🔴 利空",
 }
 
 
@@ -123,7 +121,7 @@ def format_stock_card(result: CycleResult) -> str:
     if d.abstained or d.final_score is None:
         head = f"【{d.tw_stock_id}】⬜ 資料不足"
     else:
-        head = f"【{d.tw_stock_id}】{_VERDICT_LABEL[d.action]}　Final={d.final_score:.2f}"
+        head = f"【{d.tw_stock_id}】{_TONE_LABEL[d.action.tone]}　Final={d.final_score:.2f}"
     lines = [head]
     if not (d.abstained or d.final_score is None):
         vline = _verdict_line(d)

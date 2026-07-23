@@ -73,6 +73,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config import DEFAULT_WEIGHT_RATIO  # noqa: E402
 from multi_agent_system.contracts import WatchItem  # noqa: E402
 from multi_agent_system.infra.http import HttpError, request_json  # noqa: E402
+from multi_agent_system.line_push import MAX_LINE_TEXT_LEN  # noqa: E402
 from multi_agent_system.subscribers import (  # noqa: E402
     SubscriberStore,
     SubscriberStoreError,
@@ -82,7 +83,6 @@ from multi_agent_system.subscribers import (  # noqa: E402
 logger = logging.getLogger("multi_agent_system.bot")
 
 LINE_REPLY_ENDPOINT = "https://api.line.me/v2/bot/message/reply"
-_MAX_TEXT_LEN = 4900
 
 # ── 指令關鍵字（純解析，無 I/O，可單測）─────────────────────────────────────
 _TICKER_RE = re.compile(r"[0-9]{4,6}[A-Z]?")     # 台股 / ETF 代號:4~6 碼,可帶單一英文尾
@@ -314,7 +314,7 @@ def line_reply(reply_token: str, text: str) -> None:
             "POST", LINE_REPLY_ENDPOINT,
             body={
                 "replyToken": reply_token,
-                "messages": [{"type": "text", "text": text[:_MAX_TEXT_LEN]}],
+                "messages": [{"type": "text", "text": text[:MAX_LINE_TEXT_LEN]}],
             },
             headers={"Content-Type": "application/json",
                      "Authorization": f"Bearer {_reply_token()}"},
@@ -354,7 +354,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             events = json.loads(body or b"{}").get("events", [])
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError, AttributeError) as exc:
+            # 驗簽已過但 body 非合法 JSON 物件 → 不靜默丟棄,留 log 供排查（可觀測性）。
+            logger.warning("webhook body 非合法 JSON 物件,忽略（%d bytes）：%s", len(body), exc)
             return
         store = _store()
         for ev in events:

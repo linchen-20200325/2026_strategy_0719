@@ -22,7 +22,6 @@ class Palette:
     hold: str = "#eab308"         # 黃（觀望）= TRAFFIC_YELLOW
     reduce: str = "#fb923c"       # 橘（減碼）= TRAFFIC_ORANGE
     strong_sell: str = "#ef4444"  # 紅（強賣）= TRAFFIC_RED
-    neutral: str = "#888888"      # 灰（未知/abstain）= TRAFFIC_NEUTRAL
     bar: str = "#58a6ff"          # 圖表單一藍（GitHub accent），得分長條用
 
 

@@ -27,6 +27,7 @@ from multi_agent_system.line_push import LinePushError
 from multi_agent_system.pipeline import (
     DEMO_WATCHLIST,
     WatchItem,
+    build_request,
     bullish_ranked,
     watchlist_from_df,
     watchlist_to_df,
@@ -56,15 +57,9 @@ def _macro() -> SimulatedMacroProvider:
 
 
 def _request(item: WatchItem, *, auto_trade: bool = False) -> ResearchRequest:
-    return ResearchRequest(
-        tw_stock_id=item.tw_stock_id,
-        us_stock_id=item.us_stock_id,
-        news_keywords=list(item.keywords),
-        portfolio_state=item.portfolio_state(),
-        macro_provider=_macro(),
-        as_of_date=AS_OF,
-        auto_trade=auto_trade,
-    )
+    # ResearchRequest 建構走 pipeline.build_request SSOT（與 cron 批次同源）;
+    # dashboard 只固定注入 demo 的模擬總經 _macro() 與 AS_OF，不重刻欄位對應。
+    return build_request(item, _macro(), as_of=AS_OF, auto_trade=auto_trade)
 
 
 def _secret(key: str) -> str | None:

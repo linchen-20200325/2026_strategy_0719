@@ -81,8 +81,8 @@ flowchart TD
 | `fundamental_agent.py` | 財務品質分數 | clean |
 | `strategy_agent.py` | 決策融合 → `Action`（+ 風控 override） | minor（繞過 `numerics.clamp` → V9） |
 | `ledger/reconcile.py` | forward-test 對帳（PIT-safe，純） | clean |
-| `ledger/report.py` | 命中率/淨值聚合 **+ `format_report`/`format_equity`** | mixed（L2+文字渲染 → V3） |
-| `market_digest.py` | 市場 regime **判讀** + digest **格式化** | mixed + 上行 import（V3/V4） |
+| `ledger/report.py` | 命中率/淨值聚合（純 L2） | clean（V3 後文字渲染已遷 `render_text.ledger`） |
+| `market_digest.py` | 市場 regime **判讀** + 統計（純 L2） | clean（V3/V4 後 digest 格式化已遷 `render_text.market`） |
 
 ### L3 — Service / Orchestration
 | 模組 | 職責 | 判定 |
@@ -127,7 +127,7 @@ flowchart TD
 - **V11** ledger recorder/report docstring 層級標籤修正。
 - **SSOT 收攏**：`numerics.weighted_mean`（C1）、`macro_db._latest_from`（C3）、`infra/http.request_json`（C2）、`ledger/_jsonl`（C4）、`Action.tone`+`ACTION_EMOJI`（C5）。
 - **V7** 依賴循環破除：抽 `subscribers_core.py`（純 helper + Protocol）兩後端共用 → `subscribers` ⇄ `github_store` 唯一循環消失（lazy import 降級為載入最佳化）。
-- **V2/V3/V4** 文字渲染層：LINE/console 文字組裝抽出 `render_text/`（`_common`/`run_digest`/`market`/`ledger`，對應 `ui/` 的文字版）→ `pipeline/runner`、`market_digest`、`ledger/report` 回歸純計算；來源模組留 re-export shim 保向後相容，`render_text` 靠 `TYPE_CHECKING` + function-local import 達零上行循環。
+- **V2/V3/V4** 文字渲染層：LINE/console 文字組裝抽出 `render_text/`（`_common`/`run_digest`/`market`/`ledger`，對應 `ui/` 的文字版）→ `pipeline/runner`、`market_digest`、`ledger/report` 回歸純計算；呼叫端（含測試）一律自 `render_text` 匯入文字渲染，過渡期的 re-export shim 已於收尾移除（`pipeline`/`ledger` 套件 `__init__` 不再 re-export `format_*`/`summarize`），`render_text` 靠 `TYPE_CHECKING` + function-local import 達零上行循環。
 
 ### ⏳ 剩餘
 - **V8 / V4-評分對齊**：`data_agent` 抓+輕度衍生、`market_digest.market_regime` 與 `macro_agent` 兩套總經評分 —— 低優先、by-design 可接受，待實際需求。

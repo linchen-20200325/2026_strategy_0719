@@ -20,8 +20,9 @@ from config import (
     REGIME_UNTAGGED,
 )
 from multi_agent_system.ledger.reconcile import PriceBar, horizon_band
-from multi_agent_system.ledger.report import build_report, format_report
+from multi_agent_system.ledger.report import build_report
 from multi_agent_system.ledger.store import Judgment
+from multi_agent_system.render_text import format_report
 
 
 def _seq(start: str, n: int, fn) -> list[PriceBar]:

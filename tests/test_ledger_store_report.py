@@ -14,8 +14,9 @@ import pytest
 from config import REGIME_LABEL_BEAR, REGIME_LABEL_BULL, REGIME_LABEL_NEUTRAL
 from multi_agent_system.ledger.reconcile import PriceBar
 from multi_agent_system.ledger.recorder import record_market_regime
-from multi_agent_system.ledger.report import build_report, dedup_judgments, format_report
+from multi_agent_system.ledger.report import build_report, dedup_judgments
 from multi_agent_system.ledger.store import Judgment, append_judgment, read_judgments
+from multi_agent_system.render_text import format_report
 
 TW = timezone(timedelta(hours=8))
 

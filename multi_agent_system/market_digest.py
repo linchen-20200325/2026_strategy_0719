@@ -39,7 +39,6 @@ from config import (
 
 from .contracts import CycleResult, MacroReading, NewsItem, TwMacroReading, TwNightReading
 from .numerics import linear_map
-from .render_text.market import build_market_digest  # noqa: F401  (向後相容 re-export)
 
 
 @dataclass(frozen=True)

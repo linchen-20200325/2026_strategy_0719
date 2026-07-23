@@ -5,7 +5,7 @@
 
 命中率一律顯示樣本數 n;n < LEDGER_MIN_MEANINGFUL_SAMPLE → 由 render_text.ledger 附「樣本少」
 旗標，防過早下結論。文字渲染（format_report / format_equity）已於 Phase 3 V2 遷至
-`multi_agent_system.render_text.ledger`;本檔下方保留向後相容 re-export。
+`multi_agent_system.render_text.ledger`;呼叫端請直接自 `render_text` 匯入（本檔不再 re-export）。
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ from config import (
     REGIME_LABEL_NEUTRAL,
 )
 
-from ..render_text.ledger import format_equity, format_report  # noqa: F401  (向後相容 re-export)
 from .reconcile import STATUS_SCORED, PriceBar, _entry_index, horizon_band, reconcile
 from .store import Judgment
 
@@ -152,17 +151,10 @@ class EquityReport:
     excess: float | None            # 跟單 − 大盤（超額）
     n_switches: int
     switch_cost: float
+    n_simulated: int = 0            # 模擬總經判讀（排除不計淨值；§1，比照 LedgerReport）
 
 
 _SESSION_RANK = {"morning": 0, "afternoon": 1}
-
-
-def _chrono(judgments: list[Judgment]) -> list[Judgment]:
-    """去重 + 依 (判讀日, session) 時序排序（morning 先於 afternoon）。"""
-    return sorted(
-        dedup_judgments(judgments),
-        key=lambda j: (j.judged_date, _SESSION_RANK.get(j.session, 9)),
-    )
 
 
 def build_equity(
@@ -176,10 +168,15 @@ def build_equity(
 
     段報酬 = open[下一判讀進場] / open[本判讀進場] − 1；換手成本 = switch_cost × |曝險變動|。
     最後一筆無「下一段」→ 不計（pending）；進場超出資料範圍或零長度段 → skip。
+    §1：模擬/注入總經判讀**排除不計淨值**（與 build_report 一致，不讓假總經污染跟單成績），
+    排除數以 n_simulated 揭露；market_index open 非正 → Fail-Loud raise（比照 reconcile）。
     """
     exposure = LEDGER_EXPOSURE if exposure is None else exposure
     switch_cost = LEDGER_SWITCH_COST_RATIO if switch_cost is None else switch_cost
-    seq = _chrono(judgments)
+    deduped = dedup_judgments(judgments)
+    n_simulated = sum(1 for j in deduped if getattr(j, "is_simulated", False))
+    real = [j for j in deduped if not getattr(j, "is_simulated", False)]
+    seq = sorted(real, key=lambda j: (j.judged_date, _SESSION_RANK.get(j.session, 9)))
     entries = [_entry_index(bars, date.fromisoformat(j.judged_date), j.session) for j in seq]
 
     strat = mkt = 1.0
@@ -189,7 +186,12 @@ def build_equity(
         ei, ej = entries[i], entries[i + 1]
         if ei is None or ej is None or ej <= ei:      # 無法成段（缺進場 / 零長度）
             continue
-        seg_ret = bars[ej].open / bars[ei].open - 1.0
+        entry_open = bars[ei].open
+        if entry_open <= 0:      # §1：open 非正 = market_index 資料異常，Fail-Loud（不算假報酬）
+            raise ValueError(
+                f"market_index open 非正（{entry_open} @ {bars[ei].d}），無法算跟單段報酬"
+            )
+        seg_ret = bars[ej].open / entry_open - 1.0
         exp = exposure.get(seq[i].label, 0.0)
         strat *= 1.0 + exp * seg_ret - switch_cost * abs(exp - prev_exp)
         mkt *= 1.0 + seg_ret
@@ -199,6 +201,6 @@ def build_equity(
         nseg += 1
 
     if nseg == 0:
-        return EquityReport(0, None, None, None, 0, switch_cost)
+        return EquityReport(0, None, None, None, 0, switch_cost, n_simulated)
     sr, mr = strat - 1.0, mkt - 1.0
-    return EquityReport(nseg, sr, mr, sr - mr, nsw, switch_cost)
+    return EquityReport(nseg, sr, mr, sr - mr, nsw, switch_cost, n_simulated)

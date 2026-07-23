@@ -9,10 +9,10 @@ from multi_agent_system.contracts import Action, DataPacket, FinalDecision
 from multi_agent_system.pipeline import (
     WatchItem,
     bullish_ranked,
-    format_bullish_digest,
     watchlist_from_df,
     watchlist_to_df,
 )
+from multi_agent_system.render_text import format_bullish_digest
 
 
 def _cr(stock: str, action: Action, score: float | None, *, abstained: bool = False) -> CycleResult:

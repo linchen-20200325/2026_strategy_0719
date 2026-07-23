@@ -17,7 +17,7 @@ from multi_agent_system.contracts import (
     TechnicalSnapshot,
 )
 from multi_agent_system.data_agent import DataAggregationAgent
-from multi_agent_system.pipeline.runner import _fin_line, format_stock_card
+from multi_agent_system.render_text.run_digest import _fin_line, format_stock_card
 
 
 # ------------------------------------------------------------------ 財報讀取
