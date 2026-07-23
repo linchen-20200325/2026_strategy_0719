@@ -9,12 +9,12 @@ JSONL 選擇：一列一判讀、append 即乾淨 diff（git 友善、可正常 
 
 from __future__ import annotations
 
-import json
-import os
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 
 from config import REGIME_UNTAGGED
 from paths import LEDGER_FILE as DEFAULT_LEDGER_FILE  # 落地位置 SSOT（見 paths.py）
+
+from ._jsonl import append_records, read_records, resolve_path
 
 
 @dataclass(frozen=True)
@@ -41,32 +41,14 @@ class Judgment:
 
 
 def _path(path: str | None) -> str:
-    return path or os.environ.get("LEDGER_FILE") or DEFAULT_LEDGER_FILE
+    return resolve_path(path, "LEDGER_FILE", DEFAULT_LEDGER_FILE)
 
 
 def append_judgment(j: Judgment, *, path: str | None = None) -> None:
     """append 一列判讀。父目錄不存在則建立。"""
-    p = _path(path)
-    parent = os.path.dirname(p)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
-    with open(p, "a", encoding="utf-8") as f:
-        f.write(json.dumps(asdict(j), ensure_ascii=False) + "\n")
+    append_records([j], path=_path(path))
 
 
 def read_judgments(*, path: str | None = None) -> list[Judgment]:
     """讀全部判讀（升冪即寫入序）。檔不存在 → 空列。損毀列 → raise（Fail-Loud）。"""
-    p = _path(path)
-    if not os.path.exists(p):
-        return []
-    out: list[Judgment] = []
-    with open(p, encoding="utf-8") as f:
-        for line_no, raw in enumerate(f, 1):
-            line = raw.strip()
-            if not line:
-                continue
-            try:
-                out.append(Judgment(**json.loads(line)))
-            except (json.JSONDecodeError, TypeError) as exc:
-                raise ValueError(f"{p}:{line_no} ledger 解析失敗：{exc}") from exc
-    return out
+    return read_records(Judgment, path=_path(path))

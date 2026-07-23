@@ -53,7 +53,7 @@ def test_push_text_success_builds_correct_request(monkeypatch):
         return _Resp()
 
     monkeypatch.setattr(
-        "multi_agent_system.line_push.urllib.request.urlopen", fake_urlopen
+        "multi_agent_system.infra.http.urllib.request.urlopen", fake_urlopen
     )
     LinePusher("TOKEN", "U123").push_text("hello")
 
@@ -73,7 +73,7 @@ def _capture(monkeypatch):
         return _Resp()
 
     monkeypatch.setattr(
-        "multi_agent_system.line_push.urllib.request.urlopen", fake_urlopen
+        "multi_agent_system.infra.http.urllib.request.urlopen", fake_urlopen
     )
     return captured
 
@@ -108,7 +108,7 @@ def test_push_text_http_error_raises(monkeypatch):
         )
 
     monkeypatch.setattr(
-        "multi_agent_system.line_push.urllib.request.urlopen", fake_urlopen
+        "multi_agent_system.infra.http.urllib.request.urlopen", fake_urlopen
     )
     with pytest.raises(LinePushError) as ei:
         LinePusher("T", "U").push_text("hi")
@@ -120,7 +120,7 @@ def test_push_text_conn_error_raises(monkeypatch):
         raise urllib.error.URLError("boom")
 
     monkeypatch.setattr(
-        "multi_agent_system.line_push.urllib.request.urlopen", fake_urlopen
+        "multi_agent_system.infra.http.urllib.request.urlopen", fake_urlopen
     )
     with pytest.raises(LinePushError):
         LinePusher("T", "U").push_text("hi")

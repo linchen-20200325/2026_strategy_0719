@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 
 import numpy as np
 
@@ -41,6 +41,21 @@ def linear_map(x: float, x0: float, x1: float, y0: float, y1: float) -> float:
     t = (x - x0) / (x1 - x0)
     y = y0 + t * (y1 - y0)
     return clamp(y, min(y0, y1), max(y0, y1))
+
+
+def weighted_mean(pairs: Iterable[tuple[float, float | None]]) -> float | None:
+    """加權平均：忽略 None 子分量、以「在場」權重重新歸一化；全缺 → None（不捏 0）。
+
+    pairs：(weight, value_or_None) 的可迭代。各專家「缺子分量則重新歸一化」的共用原語
+    （避免同一算式在 technical / fundamental / strategy / macro 各自重刻而靜默漂移）。
+    """
+    present = [(w, v) for w, v in pairs if v is not None]
+    if not present:
+        return None
+    total_w = math.fsum(w for w, _ in present)
+    if total_w <= 0:
+        return None
+    return math.fsum(w * v for w, v in present) / total_w
 
 
 def annualized_sharpe(

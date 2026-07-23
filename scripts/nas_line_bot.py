@@ -64,8 +64,6 @@ import logging
 import os
 import re
 import sys
-import urllib.error
-import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -73,7 +71,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import DEFAULT_WEIGHT_RATIO  # noqa: E402
-from multi_agent_system.pipeline import WatchItem  # noqa: E402
+from multi_agent_system.contracts import WatchItem  # noqa: E402
+from multi_agent_system.infra.http import HttpError, request_json  # noqa: E402
 from multi_agent_system.subscribers import (  # noqa: E402
     SubscriberStore,
     SubscriberStoreError,
@@ -309,20 +308,21 @@ def _reply_token() -> str:
 
 
 def line_reply(reply_token: str, text: str) -> None:
-    body = json.dumps({
-        "replyToken": reply_token,
-        "messages": [{"type": "text", "text": text[:_MAX_TEXT_LEN]}],
-    }, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(
-        LINE_REPLY_ENDPOINT, data=body, method="POST",
-        headers={"Content-Type": "application/json",
-                 "Authorization": f"Bearer {_reply_token()}"})
+    # webhook reply：失敗只 warn 不 raise（避免回 500 給 LINE 觸發重試風暴）。
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            status = getattr(resp, "status", None) or resp.getcode()
-            if status != 200:
-                logger.warning("LINE reply 非 200：%s", status)
-    except (urllib.error.URLError, urllib.error.HTTPError) as exc:
+        status, _ = request_json(
+            "POST", LINE_REPLY_ENDPOINT,
+            body={
+                "replyToken": reply_token,
+                "messages": [{"type": "text", "text": text[:_MAX_TEXT_LEN]}],
+            },
+            headers={"Content-Type": "application/json",
+                     "Authorization": f"Bearer {_reply_token()}"},
+            timeout=30,
+        )
+        if status != 200:
+            logger.warning("LINE reply 非 200：%s", status)
+    except HttpError as exc:
         logger.warning("LINE reply 失敗：%s", exc)
 
 

@@ -36,7 +36,7 @@ from config import (
 )
 
 from .contracts import AgentVerdict, FinancialsSnapshot
-from .numerics import linear_map
+from .numerics import linear_map, weighted_mean
 
 AGENT_NAME = "FundamentalAgent"
 
@@ -72,8 +72,7 @@ class FundamentalAgent:
                 AGENT_NAME, f"{financials.stock_id} 財報三欄皆缺，無法評基本面"
             )
 
-        total_w = sum(FUNDAMENTAL_SUBWEIGHTS[k] for k in comps)
-        score = sum(FUNDAMENTAL_SUBWEIGHTS[k] * comps[k] for k in comps) / total_w
+        score = weighted_mean((FUNDAMENTAL_SUBWEIGHTS[k], comps[k]) for k in comps)
 
         bits: list[str] = []
         if financials.gross_margin_pct is not None:

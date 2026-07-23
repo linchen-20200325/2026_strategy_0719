@@ -49,6 +49,7 @@ from .contracts import (
     AgentVerdict,
     FinalDecision,
 )
+from .numerics import clamp, weighted_mean
 
 AGENT_NAME = "StrategyAgent"
 
@@ -107,11 +108,10 @@ class StrategyAgent:
             )
 
         # --- 加權融合（partial 模式下對「可用」專家重新歸一化，不讓 None 進入算術）---
-        total_w = math.fsum(FUSION_WEIGHTS[k] for k in available)
-        final_score = (
-            math.fsum(FUSION_WEIGHTS[k] * verdicts[k].score for k in available) / total_w
+        final_score = weighted_mean(
+            (FUSION_WEIGHTS[k], verdicts[k].score) for k in available
         )
-        final_score = min(1.0, max(0.0, final_score))
+        final_score = clamp(final_score, 0.0, 1.0)
 
         action = self._map_action(final_score)
 

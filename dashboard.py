@@ -28,10 +28,10 @@ from multi_agent_system.pipeline import (
     DEMO_WATCHLIST,
     WatchItem,
     bullish_ranked,
-    format_bullish_digest,
     watchlist_from_df,
     watchlist_to_df,
 )
+from multi_agent_system.render_text import format_bullish_digest
 from multi_agent_system.subscribers import (
     SubscriberStoreError,
     make_subscriber_store,

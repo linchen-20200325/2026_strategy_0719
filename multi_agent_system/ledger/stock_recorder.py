@@ -1,4 +1,4 @@
-"""stock_recorder.py — 把個股判讀寫進 stock_ledger（record 階段）。L2。
+"""stock_recorder.py — 把個股判讀寫進 stock_ledger（record 階段）。L3 Service（持久化編排,呼叫 L1 store）。
 
 pipeline broadcast 完後呼叫，將 run_batch 每檔 CycleResult 存成一筆 StockJudgment。
 **record 失敗不可擋推播**（§8.1 #5 失敗降級）：loud log + 回已寫筆數（可為 0），不 raise。

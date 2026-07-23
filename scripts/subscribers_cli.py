@@ -17,7 +17,7 @@ import argparse
 import sys
 
 from config import DEFAULT_WEIGHT_RATIO
-from multi_agent_system.pipeline import WatchItem
+from multi_agent_system.contracts import WatchItem
 from multi_agent_system.subscribers import make_subscriber_store
 
 

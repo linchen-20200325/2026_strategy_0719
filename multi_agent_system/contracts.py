@@ -15,6 +15,8 @@ import enum
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from config import DEFAULT_MAX_WEIGHT_RATIO
+
 
 def utc_now() -> datetime:
     """統一以 UTC 產生 fetched_at（顯示時再轉本地 UTC+8）。"""
@@ -31,8 +33,21 @@ class Action(enum.Enum):
     STRONG_SELL = "強烈賣出 (Strong Sell)"
 
     @property
+    def tone(self) -> str:
+        """三態情緒 SSOT：bullish(SB/ADD) / neutral(HOLD) / bearish(REDUCE/SS)。
+
+        利多/中性/利空 分類的唯一來源（view_model / market_digest / is_bullish 皆由此衍生，
+        避免同一分類在多處重刻而漂移）。
+        """
+        if self in (Action.STRONG_BUY, Action.ADD):
+            return "bullish"
+        if self in (Action.REDUCE, Action.STRONG_SELL):
+            return "bearish"
+        return "neutral"
+
+    @property
     def is_bullish(self) -> bool:
-        return self in (Action.STRONG_BUY, Action.ADD)
+        return self.tone == "bullish"
 
 
 # 由多頭到空頭的排序（供風控 hard-override 比較「不得比 REDUCE 更偏多」）。
@@ -260,3 +275,46 @@ class FinalDecision:
     def summary(self) -> str:
         score_txt = "N/A" if self.final_score is None else f"{self.final_score:.3f}"
         return f"[{self.tw_stock_id}] {self.action.value} | Final={score_txt}"
+
+
+# ------------------------------------------------------------------ 券商 / 工作流輸出 DTO
+@dataclass(frozen=True)
+class OrderReceipt:
+    """下單回執（券商下單結果 DTO）。is_mock=True 代表未真實成交。"""
+
+    order_id: str
+    symbol: str
+    side: str            # "BUY" / "SELL"
+    quantity: float
+    status: str
+    is_mock: bool
+    placed_at: datetime = field(default_factory=utc_now)
+
+
+@dataclass
+class CycleResult:
+    """單次工作流輸出（決策 + 資料封包 + 下單回執），供觀測。"""
+
+    decision: FinalDecision
+    packet: DataPacket
+    receipt: OrderReceipt | None = None
+
+
+@dataclass(frozen=True)
+class WatchItem:
+    """觀察清單一檔（UI 編輯表 / 訂閱清單 / pipeline 共用的核心 DTO）。"""
+
+    tw_stock_id: str
+    us_stock_id: str
+    keywords: tuple[str, ...]
+    current_weight_ratio: float
+    max_weight_ratio: float = DEFAULT_MAX_WEIGHT_RATIO
+    sharpe: float | None = None
+    category: str = "台股"        # 台股 / ETF / 基金（供 UI 分組；不影響 pipeline 計算）
+
+    def portfolio_state(self) -> PortfolioState:
+        return PortfolioState(
+            current_weight_ratio=self.current_weight_ratio,
+            max_weight_ratio=self.max_weight_ratio,
+            sharpe=self.sharpe,
+        )

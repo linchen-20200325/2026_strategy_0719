@@ -16,14 +16,7 @@ from ..contracts import Action, FinalDecision
 from ..notifications import ACTION_EMOJI as _ACTION_EMOJI
 from .theme import DEFAULT_PALETTE, Palette
 
-# 交通號誌 emoji 由核心 notifications 提供(SSOT,避免重複)。
-_ACTION_TONE: dict[Action, str] = {
-    Action.STRONG_BUY: "bullish",
-    Action.ADD: "bullish",
-    Action.HOLD: "neutral",
-    Action.REDUCE: "bearish",
-    Action.STRONG_SELL: "bearish",
-}
+# 交通號誌 emoji 由核心 notifications 提供;三態 tone 由 Action.tone 提供(皆 SSOT,不重刻)。
 _EXPERT_LABELS: dict[str, str] = {
     "macro": "總經 Macro",
     "technical": "技術 Technical",
@@ -65,7 +58,7 @@ def action_visual(action: Action, palette: Palette = DEFAULT_PALETTE) -> ActionV
         emoji=_ACTION_EMOJI[action],
         label=action.value,
         hex=hexmap[action],
-        tone=_ACTION_TONE[action],
+        tone=action.tone,
     )
 
 
