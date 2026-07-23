@@ -92,7 +92,7 @@ STRATEGY_BOT_PORT=8090 \
 **可選環境變數：**
 - `STRATEGY_ALLOW_USER`：bootstrap 授權名單（逗號/空白分隔）。留空＝對外開放（誰都能建自己的清單）。
 - `STRATEGY_ADMIN_USER`：管理員 userId（可下 `授權`/`撤銷`/`名單`）；未設則沿用 `STRATEGY_ALLOW_USER`。
-- `STRATEGY_ALLOW_FILE`：授權名單持久化檔，預設 `bot_allow.json`（管理員用 LINE 加人免重啟）。
+- 授權名單（allow）：與清單**存在同一份** subscribers JSON（repo 或本機，見 §六），管理員用 LINE `授權`/`撤銷` 即時增減、免重啟;**無獨立 allow 檔**（`store.allow_ids()`）。
 - `SUBSCRIBERS_FILE`：本機清單路徑（沒設 GITHUB_* 時用），需與 cron `--subscribers` 一致。
 - `STRATEGY_BOT_TOKEN`：想用**另一個** OA 當 bot 才設，會蓋掉 reply token（一般不用）。
 - `GITHUB_BRANCH`：預設 `main`。
