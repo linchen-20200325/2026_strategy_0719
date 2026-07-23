@@ -45,3 +45,16 @@ def test_standalone_dashboard_runs():
     at = AppTest.from_file("dashboard.py").run(timeout=30)
     assert not at.exception, list(at.exception)
     assert at.title[0].value.startswith("🧠")
+
+
+def test_build_watch_item_pure():
+    """手機友善快速新增的純函式：代號去空白、全形/半形逗號切關鍵字、空代號→None。"""
+    import dashboard
+    from config import DEFAULT_WEIGHT_RATIO
+
+    it = dashboard.build_watch_item("台股", " 2317 ", "鴻海，散熱")
+    assert it is not None
+    assert it.tw_stock_id == "2317" and it.category == "台股"
+    assert it.keywords == ("鴻海", "散熱")            # 全形「，」也切、去空白
+    assert it.current_weight_ratio == DEFAULT_WEIGHT_RATIO
+    assert dashboard.build_watch_item("ETF", "   ", "") is None   # 空代號 → None（呼叫端提示）

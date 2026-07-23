@@ -15,6 +15,7 @@ from datetime import date
 
 import streamlit as st
 
+from config import DEFAULT_WEIGHT_RATIO
 from multi_agent_system import (
     DataAggregationAgent,
     LinePusher,
@@ -103,8 +104,52 @@ def _watchlist() -> list[WatchItem]:
 
 # ------------------------------------------------------------------ 分頁
 
+def build_watch_item(category: str, code: str, kw: str) -> WatchItem | None:
+    """(類別, 代號, 名稱/關鍵字) → WatchItem;空代號 → None（呼叫端提示）。純函式,好測。
+
+    關鍵字支援全形「，」與半形「,」分隔;權重走 config SSOT,與 nas_line_bot 加標的一致。
+    """
+    code = (code or "").strip()
+    if not code:
+        return None
+    keywords = tuple(k.strip() for k in (kw or "").replace("，", ",").split(",") if k.strip())
+    return WatchItem(
+        tw_stock_id=code, us_stock_id="", keywords=keywords,
+        current_weight_ratio=DEFAULT_WEIGHT_RATIO, sharpe=None, category=category,
+    )
+
+
+def _add_watch_item(category: str, code: str, kw: str, store, owner: str | None) -> None:
+    """手機友善快速新增一檔 → 存清單（設了 GitHub 就寫回）。空代號 → 提示。存完 flash + rerun。"""
+    item = build_watch_item(category, code, kw)
+    if item is None:
+        st.session_state["_watch_flash"] = (False, "請先填代號再按新增。")
+        st.rerun()
+    wl = _watchlist()
+    wl.append(item)
+    st.session_state.watchlist = wl
+    if store is not None and owner:
+        try:
+            store.set(owner, wl)
+            st.session_state["_watch_flash"] = (
+                True, f"已加入 {category} {code}，並存到 GitHub（共 {len(wl)} 檔）。"
+            )
+        except SubscriberStoreError as exc:
+            st.session_state["_watch_flash"] = (
+                False, f"已加入 {category} {code}（本次 session），但存 GitHub 失敗：{exc}"
+            )
+    else:
+        st.session_state["_watch_flash"] = (
+            True, f"已加入 {category} {code}（共 {len(wl)} 檔，僅本次 session；設 Secrets 才存得住）。"
+        )
+    st.rerun()
+
+
 def _tab_watchlist() -> None:
     st.subheader("📋 我的追蹤清單")
+    _flash = st.session_state.pop("_watch_flash", None)   # 上一次新增結果（rerun 後才顯示得到）
+    if _flash:
+        (st.success if _flash[0] else st.error)(_flash[1])
     store, owner = _persist_store(), _owner_id()
     if store is not None and owner:
         st.caption(f"✅ 已接 GitHub 持久化（owner `{owner[:8]}…`）—— 加了會寫進 repo，雲端 / NAS 共用同一份。")
@@ -119,6 +164,19 @@ def _tab_watchlist() -> None:
         "台股 / ETF 代號 → stock.db;連動美股 / 基金 → fund.db;新聞關鍵字 → news.db。"
         "可直接編輯、加列（右下 +）、刪列。"
     )
+
+    # 手機友善快速新增：手機上 st.data_editor 內嵌編輯很難點,填代號按鈕即加（免動下方表格）。
+    with st.form("quick_add_watch", clear_on_submit=True):
+        st.markdown("**➕ 快速新增**（手機建議用這個：填代號 → 按新增）")
+        fc1, fc2, fc3, fc4 = st.columns([1, 1.3, 1.6, 1])
+        q_cat = fc1.selectbox("類別", ["台股", "ETF", "基金"], label_visibility="collapsed")
+        q_code = fc2.text_input("代號", placeholder="代號 例 2317", label_visibility="collapsed")
+        q_kw = fc3.text_input(
+            "名稱/關鍵字", placeholder="名稱或新聞關鍵字（選填）", label_visibility="collapsed"
+        )
+        if fc4.form_submit_button("➕ 新增", use_container_width=True):
+            _add_watch_item(q_cat, q_code, q_kw, store, owner)
+
     edited = st.data_editor(
         watchlist_to_df(_watchlist()),
         num_rows="dynamic",
