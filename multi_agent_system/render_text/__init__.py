@@ -11,8 +11,10 @@ ledger.report），資料由函式參數流入,避免載入期循環相依。
 from __future__ import annotations
 
 from .ledger import format_equity, format_report
+from .market import build_market_digest
 
 __all__ = [
     "format_report",
     "format_equity",
+    "build_market_digest",
 ]

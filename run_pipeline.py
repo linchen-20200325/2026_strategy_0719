@@ -133,12 +133,12 @@ def _run_market_digest(orchestrator: WorkflowOrchestrator, args) -> int:
     from multi_agent_system.data_agent import DataSourceError
     from multi_agent_system.macro_db import read_tw_macro, read_tw_night
     from multi_agent_system.market_digest import (
-        build_market_digest,
         market_regime,
         summarize_news,
         tally_watchlist,
     )
     from multi_agent_system.pipeline import DEMO_WATCHLIST, build_request
+    from multi_agent_system.render_text import build_market_digest
 
     token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
     if not args.dry_run and not token:
