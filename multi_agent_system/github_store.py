@@ -19,7 +19,7 @@ import json
 
 from .contracts import WatchItem
 from .infra.http import HttpError, request_json
-from .subscribers import (
+from .subscribers_core import (
     SubscriberStoreError,
     allow_ids_of,
     apply_grant,
