@@ -126,13 +126,13 @@ flowchart TD
 - **V10** sqlite 唯讀連線 + 識別字白名單抽 `infra/db.py`（安全白名單全專案唯一份）；`data_agent` 不再兼作 db-infra home。
 - **V11** ledger recorder/report docstring 層級標籤修正。
 - **SSOT 收攏**：`numerics.weighted_mean`（C1）、`macro_db._latest_from`（C3）、`infra/http.request_json`（C2）、`ledger/_jsonl`（C4）、`Action.tone`+`ACTION_EMOJI`（C5）。
+- **V7** 依賴循環破除：抽 `subscribers_core.py`（純 helper + Protocol）兩後端共用 → `subscribers` ⇄ `github_store` 唯一循環消失（lazy import 降級為載入最佳化）。
+- **V2/V3/V4** 文字渲染層：LINE/console 文字組裝抽出 `render_text/`（`_common`/`run_digest`/`market`/`ledger`，對應 `ui/` 的文字版）→ `pipeline/runner`、`market_digest`、`ledger/report` 回歸純計算；來源模組留 re-export shim 保向後相容，`render_text` 靠 `TYPE_CHECKING` + function-local import 達零上行循環。
 
 ### ⏳ 剩餘
-- **V2/V3/V4 文字渲染層（最大單項）**：LINE/console 文字組裝仍散在 `pipeline/runner`（≈348 LOC，god-module）、`market_digest`、`ledger/report`。需抽一個「文字渲染層」（對應 `ui/` 的 Streamlit 層），讓計算模組回歸純。建議獨立聚焦進行。
-- **V7 依賴循環**：`subscribers` ⇄ `github_store`（現靠 lazy import 撐，可運作但脆弱）。抽 `subscribers_core.py`（純 helper + Protocol）兩端共用即破。
 - **V8 / V4-評分對齊**：`data_agent` 抓+輕度衍生、`market_digest.market_regime` 與 `macro_agent` 兩套總經評分 —— 低優先、by-design 可接受，待實際需求。
 
 ### 新增基底 / 拆分模組
-`broker.py`（L3 執行）· `infra/{http,db}.py`（L0/L1 共用 I/O 底層）· `ledger/_jsonl.py`（ledger I/O）· `paths.py`（落地路徑 SSOT）。
+`broker.py`（L3 執行）· `infra/{http,db}.py`（L0/L1 共用 I/O 底層）· `ledger/_jsonl.py`（ledger I/O）· `subscribers_core.py`（訂閱純邏輯）· `render_text/`（文字渲染層，對應 `ui/`）· `paths.py`（落地路徑 SSOT）。
 
 > 稽核基準 2026-07；本節隨瘦身藍圖執行更新。上方 §3 模組地圖為稽核當下快照（V1/V5/V6 後 integration_agent 已非 god、DTO 已歸位 contracts）。
