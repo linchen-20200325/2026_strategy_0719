@@ -13,7 +13,7 @@ import pandas as pd
 from config import FUSION_WEIGHTS
 
 from ..contracts import Action, FinalDecision
-from ..notifications import ACTION_EMOJI as _ACTION_EMOJI
+from ..notifications import emoji_for
 from .theme import DEFAULT_PALETTE, Palette
 
 # 交通號誌 emoji 由核心 notifications 提供;三態 tone 由 Action.tone 提供(皆 SSOT,不重刻)。
@@ -45,20 +45,23 @@ class BreakdownRow:
     available: bool
 
 
+# 以 name 對照的鏡射表（同 notifications.emoji_for 的理由：對 Streamlit 熱重載造成的
+# enum 身分不一致穩健；stale-class 的 Action 仍以 name 命中，不 KeyError）。
+_TONE_BY_NAME: dict[str, str] = {a.name: a.tone for a in Action}
+_HEX_ATTR_BY_NAME: dict[str, str] = {
+    "STRONG_BUY": "strong_buy", "ADD": "add", "HOLD": "hold",
+    "REDUCE": "reduce", "STRONG_SELL": "strong_sell",
+}
+
+
 def action_visual(action: Action, palette: Palette = DEFAULT_PALETTE) -> ActionVisual:
-    """行動 → (emoji, 標籤, 顏色, 傾向)。"""
-    hexmap = {
-        Action.STRONG_BUY: palette.strong_buy,
-        Action.ADD: palette.add,
-        Action.HOLD: palette.hold,
-        Action.REDUCE: palette.reduce,
-        Action.STRONG_SELL: palette.strong_sell,
-    }
+    """行動 → (emoji, 標籤, 顏色, 傾向)。以 name 對照,enum 身分不一致亦不炸（未知 → 中性灰）。"""
+    name = getattr(action, "name", "")
     return ActionVisual(
-        emoji=_ACTION_EMOJI[action],
-        label=action.value,
-        hex=hexmap[action],
-        tone=action.tone,
+        emoji=emoji_for(action),
+        label=getattr(action, "value", str(action)),
+        hex=getattr(palette, _HEX_ATTR_BY_NAME.get(name, "hold")),
+        tone=_TONE_BY_NAME.get(name, "neutral"),
     )
 
 

@@ -21,6 +21,16 @@ ACTION_EMOJI: dict[Action, str] = {
     Action.STRONG_SELL: "🔴",
 }
 
+# 以 name(str) 對照的鏡射表 + 查表函式。理由:Streamlit `@st.cache_resource` 熱重載會讓
+# 「快取的 orchestrator 產出的舊 Action class」與「重載後 dict 的新 Action class」身分不一致,
+# 直接 `ACTION_EMOJI[action]` 會 KeyError（enum 以身分為 key）。改以 name 對照即穩健。
+_EMOJI_BY_NAME: dict[str, str] = {a.name: e for a, e in ACTION_EMOJI.items()}
+
+
+def emoji_for(action: Action) -> str:
+    """行動 → 交通號誌 emoji;以 name 對照,enum 身分不一致亦不炸（未知 → ⬜）。"""
+    return _EMOJI_BY_NAME.get(getattr(action, "name", ""), "⬜")
+
 
 def should_notify(decision: FinalDecision) -> bool:
     """只在有明確買賣傾向時通知(Hold / abstain 不推)。"""
@@ -32,7 +42,7 @@ def format_notification(decision: FinalDecision) -> str:
     score = "N/A" if decision.final_score is None else f"{decision.final_score:.3f}"
     tag = "（🚨風控減碼）" if decision.risk_control_triggered else ""
     return (
-        f"{ACTION_EMOJI[decision.action]} [{decision.tw_stock_id}] "
+        f"{emoji_for(decision.action)} [{decision.tw_stock_id}] "
         f"{decision.action.value}{tag}　Final={score}"
     )
 
