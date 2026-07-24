@@ -30,6 +30,22 @@ def test_action_visual_colors_match_palette():
     assert vm.action_visual(Action.HOLD).tone == "neutral"
 
 
+def test_action_visual_survives_enum_identity_mismatch():
+    """回歸:Streamlit @st.cache_resource 熱重載後,快取 orchestrator 產出的「舊 class」Action
+    與重載後的 emoji/hex 表「新 class」身分不一致 → 以 enum 當 key 會 KeyError。改用 name 對照後穩健。
+    """
+    import enum
+
+    from multi_agent_system.notifications import emoji_for
+
+    Stale = enum.Enum("Action", {a.name: a.value for a in Action})  # 同名同值、身分不同
+    assert Stale.ADD is not Action.ADD                              # 重現 bug 的前提
+
+    av = vm.action_visual(Stale.ADD)          # 修好前：_ACTION_EMOJI[Stale.ADD] → KeyError
+    assert av.emoji == "🟢" and av.tone == "bullish" and av.hex == DEFAULT_PALETTE.add
+    assert emoji_for(Stale.STRONG_SELL) == "🔴"    # 查表函式本身也穩健
+
+
 def test_hex_to_rgba():
     assert vm.hex_to_rgba("#22c55e", 0.14) == "rgba(34,197,94,0.14)"
     with pytest.raises(ValueError):

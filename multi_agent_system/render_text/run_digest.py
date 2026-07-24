@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from config import SESSION_LABELS
 
-from ..notifications import ACTION_EMOJI, format_notification
+from ..notifications import emoji_for, format_notification
 from ._common import _fmt_price
 
 if TYPE_CHECKING:
@@ -207,7 +207,7 @@ def summarize(report: RunReport) -> str:
     ]
     for r in report.results:
         d = r.decision
-        emoji = ACTION_EMOJI[d.action]
+        emoji = emoji_for(d.action)
         score = "N/A" if d.final_score is None else f"{d.final_score:.3f}"
         lines.append(f"  {emoji} {d.tw_stock_id}　{d.action.value}　Final={score}")
     return "\n".join(lines)
