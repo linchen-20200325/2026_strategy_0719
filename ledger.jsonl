@@ -1,0 +1,6 @@
+{"judged_at": "2026-07-22T12:35:25.930606+08:00", "judged_date": "2026-07-22", "session": "morning", "label": "偏空", "overall": 0.397739}
+{"judged_at": "2026-07-22T18:38:40.834656+08:00", "judged_date": "2026-07-22", "session": "afternoon", "label": "偏空", "overall": 0.397739}
+{"judged_at": "2026-07-23T09:03:41.844998+08:00", "judged_date": "2026-07-23", "session": "morning", "label": "偏多", "overall": 0.647679, "regime": "正常", "is_simulated": false}
+{"judged_at": "2026-07-23T18:39:37.890747+08:00", "judged_date": "2026-07-23", "session": "afternoon", "label": "偏多", "overall": 0.647679, "regime": "正常", "is_simulated": false}
+{"judged_at": "2026-07-24T08:57:05.505183+08:00", "judged_date": "2026-07-24", "session": "morning", "label": "中性", "overall": 0.593553, "regime": "正常", "is_simulated": false}
+{"judged_at": "2026-07-24T18:33:43.504592+08:00", "judged_date": "2026-07-24", "session": "afternoon", "label": "中性", "overall": 0.593553, "regime": "正常", "is_simulated": false}
