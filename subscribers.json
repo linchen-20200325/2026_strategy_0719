@@ -2,31 +2,6 @@
   "users": {
     "U9f91f983afc02d980ee0c77269ff23fa": [
       {
-        "tw_stock_id": "2330",
-        "us_stock_id": "NVDA",
-        "keywords": [
-          "台積電",
-          "半導體",
-          "TSMC"
-        ],
-        "current_weight_ratio": 0.1,
-        "max_weight_ratio": 0.2,
-        "sharpe": 1.4,
-        "category": "台股"
-      },
-      {
-        "tw_stock_id": "2454",
-        "us_stock_id": "AMD",
-        "keywords": [
-          "聯發科",
-          "半導體"
-        ],
-        "current_weight_ratio": 0.12,
-        "max_weight_ratio": 0.2,
-        "sharpe": 1.1,
-        "category": "台股"
-      },
-      {
         "tw_stock_id": "6239",
         "us_stock_id": "",
         "keywords": [],
