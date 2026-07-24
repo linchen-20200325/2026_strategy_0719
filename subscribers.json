@@ -34,6 +34,15 @@
         "max_weight_ratio": 0.2,
         "sharpe": null,
         "category": "台股"
+      },
+      {
+        "tw_stock_id": "6770",
+        "us_stock_id": "",
+        "keywords": [],
+        "current_weight_ratio": 0.1,
+        "max_weight_ratio": 0.2,
+        "sharpe": null,
+        "category": "台股"
       }
     ]
   },
