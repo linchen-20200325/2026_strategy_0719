@@ -17,6 +17,13 @@
 #
 # 時區：cron 一律 UTC。台灣 = UTC+8。來源 export 於 UTC 21:00（TW 05:00）產出，
 #       本消費端排在其後，確保讀到當日最新資料。
+#
+# 場次（morning / afternoon）由**實際觸發的那條 cron 原文**決定（`github.event.schedule`
+# → CLI → config.CRON_SESSIONS），**不看跑起來當下的時鐘**：GitHub 排程只保證「不早於」，
+# 2026-08-27 盤前班被延遲 5h09m，舊的 `date -u` 時鐘反推把它標成「收盤後」，
+# 12:39 TW（台股 13:30 才收盤）推出一則假的收盤快訊。
+# 下面每條 `- cron:` 原文都必須登錄於 config.CRON_SESSIONS（tests/test_schedule.py 釘死），
+# 否則 CLI 會 Fail-Loud 非零退出 —— 本 YAML 不得自帶第二套時間判斷。
 
 name: market-digest-broadcast
 
@@ -27,11 +34,18 @@ on:
   workflow_dispatch:
     inputs:
       session:
-        description: "morning（早盤前）/ afternoon（收盤後）"
+        description: "morning（早盤前）/ afternoon（收盤後）—— 僅手動觸發時使用"
         default: "morning"
 
 permissions:
   contents: write   # 判讀存回本 repo 的 ledger 分支需寫入（走內建 GITHUB_TOKEN）
+
+# ledger 走 orphan branch `git push -f`（讀→改→強推）。兩個 run 重疊會 lost update：
+# 後推的那份是用「取回舊 ledger」算出來的，會把先推的那筆判讀蓋掉。
+concurrency:
+  group: market-digest-broadcast
+  cancel-in-progress: false   # 必須 false：推播與落帳不是原子操作，中途取消會產生「推了但沒記帳」
+# ⚠️ 這只擋「同時」，不擋「同一天先後跑兩次」。同日同場次去重刻意不做（會誤傷手動補推）。
 
 jobs:
   broadcast:
@@ -74,19 +88,12 @@ jobs:
       - name: Install deps（CLI 只需核心運算，免 streamlit）
         run: pip install "pandas>=2.0,<4.0" "numpy>=1.24"
 
-      - name: Decide session
-        id: sess
+      - name: 觸發脈絡（場次來源）
         run: |
-          # 兩個 cron：morning 23:30 UTC（TW 07:30 盤前）；afternoon 08:30 UTC（TW 16:30 收盤後）。
-          # UTC 小時 >= 20 或 < 4 → 對應 TW 清晨 → morning；其餘 → afternoon。
-          H="$(date -u +%-H)"
-          if [ -n "${{ github.event.inputs.session }}" ]; then
-            echo "session=${{ github.event.inputs.session }}" >> "$GITHUB_OUTPUT"
-          elif [ "$H" -ge 20 ] || [ "$H" -lt 4 ]; then
-            echo "session=morning" >> "$GITHUB_OUTPUT"
-          else
-            echo "session=afternoon" >> "$GITHUB_OUTPUT"
-          fi
+          # 場次判定已整條移進 CLI（run_pipeline.py → multi_agent_system/schedule.py）。
+          # 這裡只把來源印出來備查：排程觸發時 event.schedule 應為觸發的那條 cron 原文。
+          echo "event_name    = ${GITHUB_EVENT_NAME}"
+          echo "event.schedule= ${{ github.event.schedule }}"
 
       - name: Sanity check DB 檔存在
         run: |
@@ -120,6 +127,10 @@ jobs:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LEDGER_FILE: ledger.jsonl
           STOCK_LEDGER_FILE: stock_ledger.jsonl   # A Phase 1：個股判讀落帳
+          # 排程觸發的 cron 原文 → CLI 查 config.CRON_SESSIONS 判場次（非排程觸發時為空字串）。
+          GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
+          # 手動觸發用；經 env 傳遞並加引號，避免把輸入字串拼進 shell 指令。
+          DISPATCH_SESSION: ${{ github.event.inputs.session }}
         run: |
           # 未設 LINE token（例如手動排練）→ 加 --dry-run 只印不推，避免 workflow 失敗。
           DRY=""
@@ -127,7 +138,15 @@ jobs:
             echo "::warning::未設 LINE_CHANNEL_ACCESS_TOKEN → --dry-run 只預覽不推播"
             DRY="--dry-run"
           fi
-          python run_pipeline.py --session "${{ steps.sess.outputs.session }}" --market-digest --record $DRY
+          # 手動觸發 → 明示 --session（依 event_name 判斷，不靠 inputs 字串是否為空 ——
+          # inputs.session 有 default 值，永遠非空，那種寫法是在賭 default 的副作用）。
+          # 排程觸發 → 不帶 --session，由 GITHUB_EVENT_SCHEDULE 的 cron 原文決定場次。
+          # 排程延遲超過門檻 → CLI 不推播、不落帳並回 0（見 config.SESSION_MAX_DELAY_MIN）。
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            python run_pipeline.py --session "${DISPATCH_SESSION}" --market-digest --record $DRY
+          else
+            python run_pipeline.py --market-digest --record $DRY
+          fi
 
       - name: 存回 ledger.jsonl → ledger 分支（orphan force-push，全歷史留在檔內）
         if: hashFiles('ledger.jsonl') != ''

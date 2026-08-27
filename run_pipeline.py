@@ -9,6 +9,16 @@
     # 示範（自動 seed demo 資料庫,不需環境變數）
     python run_pipeline.py --session morning --demo
 
+場次（morning / afternoon）怎麼決定
+--------------------------------
+優先序（沒有 else，判不出就非零退出；見 multi_agent_system/schedule.py）：
+  1. 明示 `--session`                              —— NAS crontab / workflow_dispatch
+  2. 環境變數 `GITHUB_EVENT_SCHEDULE`（cron 原文）  —— GitHub 排程觸發，查 config.CRON_SESSIONS
+  3. 皆無 / cron 未登錄                             —— 大聲報錯 + 退出碼 5，不以時鐘反推
+
+排程被平台延遲超過 config.SESSION_MAX_DELAY_MIN → 不推播、不落帳、退出碼 0
+（平台延遲不是本系統故障，不該讓排程變紅 X；但留 error log + GitHub `::warning::`）。
+
 總經數據
 --------
 若設環境變數 MACRO_SPREAD_PCT + MACRO_CPI_YOY_PCT → 視為「真實注入值」(is_simulated=False)。
@@ -24,8 +34,9 @@ import json
 import logging
 import os
 import sys
+from datetime import datetime, timezone
 
-from config import today_tw
+from config import SESSION_MAX_DELAY_MIN, today_tw
 from multi_agent_system import (
     ConsoleNotifier,
     DataAggregationAgent,
@@ -43,8 +54,60 @@ from multi_agent_system.pipeline import (
     load_db_paths,
 )
 from multi_agent_system.render_text import format_run_digest, summarize
+from multi_agent_system.schedule import (
+    ScheduleError,
+    is_too_late,
+    lateness,
+    resolve_session,
+)
 
 logger = logging.getLogger("multi_agent_system.pipeline")
+
+
+def _now_utc() -> datetime:
+    """現在（UTC, tz-aware）。抽成函式，讓「排程遲到」情境能在測試中注入。
+
+    刻意不用 freezegun（不在 requirements；本系統走 Python 3.8 零額外相依路線）。
+    """
+    return datetime.now(timezone.utc)
+
+
+def _resolve_session_or_exit(args) -> int | None:
+    """把場次寫回 args.session；順帶套遲到閘。回傳 None=繼續，其餘=main 應直接回傳的碼。
+
+    ⚠️ 本函式必須在 orchestrator.run_batch / record_* 之前呼叫 —— 遲到閘若擺在
+    LinePusher 前面才生效，判讀早已落帳，會留下「沒推出去卻已記帳」的幽靈紀錄。
+    """
+    explicit = args.session
+    cron = os.environ.get("GITHUB_EVENT_SCHEDULE")
+    try:
+        args.session = resolve_session(explicit=explicit, cron=cron)
+    except ScheduleError as exc:
+        logger.error("場次判定失敗：%s", exc)
+        return 5
+    logger.info(
+        "場次 %s（來源：%s）", args.session,
+        "--session" if explicit else f"cron {cron!r}",
+    )
+
+    # 遲到閘只在「場次來自 cron」時成立：明示 --session 沒有排定時刻可比對
+    # （NAS crontab 由本機 cron 準時拉起，workflow_dispatch 是人為手動補推，都不該被擋）。
+    if explicit or not cron:
+        return None
+    delay = lateness(cron, _now_utc())
+    if not is_too_late(args.session, delay):
+        return None
+    msg = (
+        f"排程延遲 {round(delay.total_seconds() / 60)} 分鐘"
+        f"（cron {cron} → {args.session}，門檻 {SESSION_MAX_DELAY_MIN[args.session]} 分）"
+        "→ 不推播、不落帳。內容已失去時效，補推只會誤導"
+        "（如盤前計畫在台股開盤後才送達）。"
+    )
+    logger.error("%s", msg)
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        # 平台延遲非本系統故障 → 退出碼 0（不讓排程變紅 X），但在 Actions 摘要留下黃字。
+        print(f"::warning::{msg}")
+    return 0
 
 
 def _build_macro_provider(fund_db: str | None = None) -> MacroDataProvider:
@@ -205,7 +268,11 @@ def _run_market_digest(orchestrator: WorkflowOrchestrator, args) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="多智能體投研排程執行")
-    parser.add_argument("--session", required=True, choices=["morning", "afternoon"])
+    parser.add_argument(
+        "--session", choices=["morning", "afternoon"],
+        help="明示場次（優先序最高）。省略時改由環境變數 GITHUB_EVENT_SCHEDULE "
+             "的 cron 原文查 config.CRON_SESSIONS；兩者皆無 → 報錯退出（不以時鐘反推）",
+    )
     parser.add_argument("--demo", action="store_true", help="使用自動 seed 的示範資料庫")
     parser.add_argument(
         "--strict", action="store_true", help="資料過期即中止（Fail-Loud）"
@@ -238,6 +305,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+
+    # 場次判定 + 遲到閘 —— 必須早於 orchestrator / run_batch / record_*（見函式 docstring）。
+    early = _resolve_session_or_exit(args)
+    if early is not None:
+        return early
 
     try:
         db_paths = _resolve_db_paths(args.demo)

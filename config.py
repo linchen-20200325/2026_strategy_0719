@@ -33,6 +33,31 @@ def today_tw() -> date:
 
 
 # =============================================================================
+# 0b. 排程場次 SSOT — cron 原文 → 場次 / 遲到門檻
+# =============================================================================
+# 場次（morning 盤前 / afternoon 收盤後）**只能由「實際觸發的那條 cron 字串」決定**，
+# 嚴禁用「跑起來當下的時鐘」反推。實證（2026-08-27）：盤前班被 GitHub 延遲 5h09m 才啟動，
+# 時鐘反推越過時窗 → 12:39 TW 推出一則標「收盤後」的快訊（台股 13:30 才收盤）。
+#
+# 本表是 workflow YAML 與 CLI 的**共同**真相源：
+# `.github/workflows/run_pipeline.yml` 的每條 `- cron:` 原文都必須是本 dict 的 key
+# （由 tests/test_schedule.py 的 YAML 守衛釘死），YAML 端不得自帶第二套時間判斷。
+# 查無對應 → Fail-Loud（大聲報錯 + 非零退出），不 fallback 回時鐘猜。
+CRON_SESSIONS: dict[str, str] = {
+    "30 23 * * 0-4": "morning",    # TW 07:30 盤前（= 前一日 23:30 UTC，週日~四）
+    "30 8 * * 1-5": "afternoon",   # TW 16:30 收盤後（= 當日 08:30 UTC，週一~五）
+}
+
+# 遲到門檻（單位：分鐘）—— 排程被平台延遲超過此值 → 不推播、不落帳（內容已失去時效）。
+# morning 90：盤前班 07:30 TW 觸發，截止 09:00 TW ＝ 台股開盤。開盤後才送達的
+#   「盤前計畫」已無可執行性，推出去只會誤導。
+# afternoon 240：收盤後班 16:30 TW 觸發，截止 20:30 TW。收盤後當日資料不再變動，
+#   容忍度可放寬；再晚就該讓隔日盤前班接手，而非補推一則過期的收盤快訊。
+# 兩者刻意不同值：單一門檻會讓其中一場不是太鬆就是太緊（盤前的時效性由開盤時點決定）。
+SESSION_MAX_DELAY_MIN: dict[str, int] = {"morning": 90, "afternoon": 240}
+
+
+# =============================================================================
 # 1. 決策融合 (Strategy Agent) — 三專家加權
 # =============================================================================
 # 融合權重（總和必為 1.0）。加入「基本面」專家後，macro:technical:allocation 仍維持
@@ -254,6 +279,13 @@ def _validate_config() -> None:
         total = math.fsum(weights.values())
         if not math.isclose(total, 1.0, abs_tol=FLOAT_ABS_TOL):
             raise ValueError(f"[config] {name} 權重總和 {total!r} != 1.0，違反歸一化契約")
+
+    unknown = set(CRON_SESSIONS.values()) - set(SESSION_LABELS)
+    if unknown:
+        raise ValueError(f"[config] CRON_SESSIONS 指向未知場次：{sorted(unknown)}")
+    missing = set(SESSION_LABELS) - set(SESSION_MAX_DELAY_MIN)
+    if missing:
+        raise ValueError(f"[config] SESSION_MAX_DELAY_MIN 缺場次門檻：{sorted(missing)}")
 
     cutoffs = [REDUCE_MIN, HOLD_MIN, ADD_MIN, STRONG_BUY_MIN]
     if cutoffs != sorted(cutoffs) or len(set(cutoffs)) != len(cutoffs):

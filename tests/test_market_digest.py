@@ -263,6 +263,91 @@ def test_market_regime_skips_missing_dims():
     assert len(reasons) == 1 and "美股總經" in reasons[0]
 
 
+# ---------------------------------------------------------------- as-of 資料日期
+def test_digest_labels_as_of_per_field():
+    """逐欄標資料日期：PMI（月頻）與外資（日頻）本來就不同日，同行不標會被讀成都是今天。"""
+    digest = build_market_digest(
+        session="afternoon", day="07/19",
+        macro=_macro(0.4, 3.0),                       # as_of 2026-07-18
+        intl_news=NewsStat(0, None, []),
+        tw_news=NewsStat(0, None, []),
+        tally=tally_watchlist([_res(Action.HOLD)]),
+        tw_macro=_tw_macro(55.3, -60.8),              # PMI 2026-06-01 / 外資 2026-07-18
+        night=_night(),                               # 留倉 + 夜盤 皆 2026-07-18
+    )
+    assert "CPI 3.0%（溫和）@07/18" in digest
+    assert "PMI 55.3（擴張）@06/01" in digest          # 月頻，落後於外資
+    assert "外資 -61 億（賣超）@07/18" in digest
+    assert "台指期外資留倉 +12,480 口（偏多）@07/18" in digest
+    assert "小漲，隔日偏多）@07/18" in digest
+    # 緊湊：as-of 一律內嵌同一行，不另起新行（LINE 訊息長度有限）。
+    assert "\n@" not in digest
+
+
+def test_missing_as_of_adds_no_suffix():
+    """as-of 為 None → 不加後綴、不留空、**絕不填今天**（填今天＝造假，§1 Fail-Loud）。"""
+    macro = MacroReading(
+        yield_spread_pct=0.4, cpi_yoy_pct=3.0, source="test", as_of=None, is_simulated=False
+    )
+    tw = TwMacroReading(
+        pmi=55.3, pmi_as_of=None, foreign_net_yi=-60.8, foreign_as_of=None,
+        source="test", is_simulated=False,
+    )
+    night = TwNightReading(
+        foreign_fut_oi_lots=12480.0, fut_oi_as_of=None,
+        night_close=22150.0, night_chg_pts=85.0, night_chg_pct=0.385, night_as_of=None,
+        source="test", is_simulated=False,
+    )
+    digest = build_market_digest(
+        session="morning", day="07/21",
+        macro=macro, intl_news=NewsStat(0, None, []), tw_news=NewsStat(0, None, []),
+        tally=tally_watchlist([_res(Action.HOLD)]), tw_macro=tw, night=night,
+    )
+    assert "@" not in digest                       # 一個日期後綴都不該出現
+    assert "PMI 55.3（擴張）" in digest             # 其餘照舊
+
+
+def test_partial_as_of_only_labels_the_field_that_has_it():
+    """一欄有 as-of、一欄沒有 → 只標有的那欄，不拿別欄的日期頂替。"""
+    tw = TwMacroReading(
+        pmi=48.5, pmi_as_of="2026-06-01", foreign_net_yi=-60.8, foreign_as_of=None,
+        source="test", is_simulated=False,
+    )
+    digest = build_market_digest(
+        session="morning", day="07/21",
+        macro=_macro(0.4, 3.0), intl_news=NewsStat(0, None, []), tw_news=NewsStat(0, None, []),
+        tally=tally_watchlist([_res(Action.HOLD)]), tw_macro=tw,
+    )
+    assert "PMI 48.5（收縮）@06/01" in digest
+    assert "外資 -61 億（賣超）" in digest
+    assert "外資 -61 億（賣超）@" not in digest
+
+
+def test_non_iso_as_of_is_shown_raw():
+    """非 ISO 形狀 → 原樣顯示，不猜也不丟（看不懂就照實秀出來）。"""
+    macro = MacroReading(
+        yield_spread_pct=0.4, cpi_yoy_pct=3.0, source="test", as_of="2026Q2",
+        is_simulated=False,
+    )
+    digest = build_market_digest(
+        session="morning", day="07/21",
+        macro=macro, intl_news=NewsStat(0, None, []), tw_news=NewsStat(0, None, []),
+        tally=tally_watchlist([_res(Action.HOLD)]),
+    )
+    assert "@2026Q2" in digest
+
+
+def test_simulated_flag_still_trails_the_as_of():
+    """（模擬）旗標仍在行尾 —— as-of 不得把 Fail-Loud 標記擠掉。"""
+    digest = build_market_digest(
+        session="morning", day="07/21",
+        macro=_macro(1.2, 2.1, simulated=True),
+        intl_news=NewsStat(0, None, []), tw_news=NewsStat(0, None, []),
+        tally=tally_watchlist([_res(Action.HOLD)]),
+    )
+    assert "@07/18（模擬）" in digest
+
+
 # ---------------------------------------------------------------- CLI 冒煙
 def test_cli_market_digest_dry_run():
     import run_pipeline
