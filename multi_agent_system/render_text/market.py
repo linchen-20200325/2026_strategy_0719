@@ -7,6 +7,14 @@
   market_digest）。
 
 Fail-Loud：macro 為模擬值 → 明標「（模擬）」;某區塊無新聞 → 誠實寫「無資料」,不臆造中性。
+
+資料日期（as-of）
+----------------
+每個數字後綴 `@MM/DD` 標它**歸屬哪一天**（DTO 早有 as_of 系列欄位，macro_db 已填值）。
+月頻的 PMI 與日頻的外資買賣超本來就不同日，同一行不標日期會被讀成「都是今天的數字」。
+as-of 為 None → **不加後綴**（不留空、絕不填今天 —— 填今天就是造假，§1）。
+後綴刻意接在括號**外**：括號內已被判讀語（擴張 / 賣超 / 偏多）占用，
+且既有測試以「PMI 55.3（擴張）」這類子字串釘死格式（見 docs/GOTCHAS「改前先 grep 測試斷言的值」）。
 """
 
 from __future__ import annotations
@@ -25,6 +33,19 @@ if TYPE_CHECKING:
     from ..market_digest import NewsStat, WatchTally
 
 
+def _as_of(raw: str | None) -> str:
+    """資料日期後綴：`"2026-06-01"` → `"@06/01"`；None / 空 → `""`（不留空、不填今天）。
+
+    非 ISO 形狀的字串原樣顯示（`@<原字串>`）—— 看不懂就照實秀出來，不猜也不丟。
+    """
+    if not raw:
+        return ""
+    text = str(raw).strip()
+    if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+        return f"@{text[5:7]}/{text[8:10]}"
+    return f"@{text}"
+
+
 def _macro_line(macro: MacroReading) -> str:
     inverted = macro.yield_spread_pct <= YIELD_INVERSION_PCT
     hot = macro.cpi_yoy_pct >= CPI_HOT_PCT
@@ -32,7 +53,7 @@ def _macro_line(macro: MacroReading) -> str:
     cpi = "🔥偏熱" if hot else "溫和"
     sim = "（模擬）" if macro.is_simulated else ""
     return (f"🌍 殖利率 10Y-2Y {macro.yield_spread_pct:+.2f}%（{curve}）· "
-            f"CPI {macro.cpi_yoy_pct:.1f}%（{cpi}）{sim}")
+            f"CPI {macro.cpi_yoy_pct:.1f}%（{cpi}）{_as_of(macro.as_of)}{sim}")
 
 
 def _tw_macro_line(tw: TwMacroReading) -> str:
@@ -40,12 +61,12 @@ def _tw_macro_line(tw: TwMacroReading) -> str:
     parts: list[str] = []
     if tw.pmi is not None:
         regime = "擴張" if tw.pmi >= PMI_EXPANSION_LEVEL else "收縮"
-        parts.append(f"PMI {tw.pmi:.1f}（{regime}）")
+        parts.append(f"PMI {tw.pmi:.1f}（{regime}）{_as_of(tw.pmi_as_of)}")
     else:
         parts.append("PMI 資料不足")
     if tw.foreign_net_yi is not None:
         flow = "買超" if tw.foreign_net_yi >= 0 else "賣超"
-        parts.append(f"外資 {tw.foreign_net_yi:+.0f} 億（{flow}）")
+        parts.append(f"外資 {tw.foreign_net_yi:+.0f} 億（{flow}）{_as_of(tw.foreign_as_of)}")
     else:
         parts.append("外資 資料不足")
     sim = "（模擬）" if tw.is_simulated else ""
@@ -60,12 +81,15 @@ def _night_lines(night: TwNightReading) -> list[str]:
     if night.foreign_fut_oi_lots is not None:
         lots = night.foreign_fut_oi_lots
         bias = "偏多" if lots > 0 else ("偏空" if lots < 0 else "中性")
-        lines.append(f"🌙 台指期外資留倉 {lots:+,.0f} 口（{bias}）")
+        lines.append(
+            f"🌙 台指期外資留倉 {lots:+,.0f} 口（{bias}）{_as_of(night.fut_oi_as_of)}"
+        )
     if night.night_close is not None:
         seg = f"🌙 台指夜盤 {night.night_close:g}"
         if night.night_chg_pct is not None:
             pts = f"{night.night_chg_pts:+.0f} 點 / " if night.night_chg_pts is not None else ""
             seg += f"（{pts}{night.night_chg_pct:+.1f}% → {night_regime(night.night_chg_pct)}）"
+        seg += _as_of(night.night_as_of)
         lines.append(seg)
     if lines and night.is_simulated:
         lines[-1] += "（模擬）"
