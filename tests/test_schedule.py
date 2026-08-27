@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -21,6 +22,7 @@ from multi_agent_system.schedule import (
     resolve_session,
     scheduled_fire_utc,
 )
+from paths import REPO_ROOT
 
 MORNING_CRON = "30 23 * * 0-4"
 AFTERNOON_CRON = "30 8 * * 1-5"
@@ -153,3 +155,58 @@ def test_unknown_session_gate_raises():
 def test_every_registered_cron_maps_to_known_session():
     assert set(CRON_SESSIONS.values()) <= set(SESSION_LABELS)
     assert set(SESSION_LABELS) <= set(SESSION_MAX_DELAY_MIN)
+
+
+# ------------------------------------------------------------------ workflow YAML 守衛
+# 純文字讀取，**不 import yaml** —— PyYAML 不在 requirements.txt，測試不得硬相依。
+WORKFLOW = REPO_ROOT / ".github" / "workflows" / "run_pipeline.yml"
+
+
+def _workflow_text() -> str:
+    return WORKFLOW.read_text(encoding="utf-8")
+
+
+def test_workflow_crons_are_all_registered_in_config():
+    """★ 把 YAML 與 config 綁成同一份真相：每條 cron 原文都必須是 CRON_SESSIONS 的 key。
+
+    漏登錄的下場是 CLI 在 Fail-Loud 端非零退出（推播整個不發），本測讓它在 PR 就紅。
+    """
+    crons = re.findall(r"^\s*-\s*cron:\s*[\"']([^\"']+)[\"']", _workflow_text(), re.M)
+    assert crons, "workflow 找不到任何 cron —— 正則或 YAML 結構變了"
+    for cron in crons:
+        assert cron in CRON_SESSIONS, f"YAML 的 cron {cron!r} 未登錄 config.CRON_SESSIONS"
+
+
+def test_config_has_no_stale_cron_entries():
+    """反向：CRON_SESSIONS 也不該留下 YAML 已不用的殭屍 cron（兩邊必須對齊）。"""
+    text = _workflow_text()
+    for cron in CRON_SESSIONS:
+        assert f'cron: "{cron}"' in text, f"config 登錄的 {cron!r} 在 workflow 中已不存在"
+
+
+def test_workflow_has_no_clock_based_session_branch():
+    """workflow 不得再自帶時鐘判斷 —— 場次判定只能有一份，且在 CLI。"""
+    text = _workflow_text()
+    for banned in ("date -u +%-H", '"$H" -ge 20', "session=morning", "session=afternoon",
+                   "steps.sess"):
+        assert banned not in text, f"workflow 仍含時鐘分支殘留：{banned!r}"
+
+
+def test_workflow_passes_cron_to_cli():
+    assert "GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}" in _workflow_text()
+
+
+def test_workflow_uses_event_name_for_manual_dispatch():
+    """手動觸發要看 event_name，不准再賭「inputs.session 是否為空」（default 讓它永不為空）。"""
+    text = _workflow_text()
+    assert 'if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]' in text
+    assert '[ -n "${{ github.event.inputs.session }}" ]' not in text
+
+
+def test_workflow_has_concurrency_guard():
+    """ledger 走 orphan branch force-push；同時跑兩個 run 會 lost update。"""
+    text = _workflow_text()
+    assert "concurrency:" in text
+    assert "group: market-digest-broadcast" in text
+    # 取消進行中的 run 會產生「推了但沒記帳」—— 推播與落帳不是原子操作。
+    assert "cancel-in-progress: false" in text
